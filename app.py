@@ -29,7 +29,9 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from connection import bootstrap_db, get_db
+from connection import bootstrap_db
 
+bootstrap_db()
 
 app = Flask(__name__)
 IS_PRODUCTION = os.environ.get("FLASK_ENV") == "production" or os.environ.get("APP_ENV") == "production"
