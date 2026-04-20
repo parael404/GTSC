@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tracker Device</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body class="tracker-terminal-body" data-start-trip-url="{{ url_for('start_trip') }}" data-end-trip-url="{{ url_for('end_trip') }}" data-driver-location-url="{{ url_for('driver_location') }}" data-csrf-token="{{ csrf_token() }}">
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+  <main class="tracker-terminal">
+    <section class="tracker-hero">
+      <div class="brand-lockup compact">
+        <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+        <div>
+          <p class="brand-name">Gajoda Transportation Services</p>
+          <p class="brand-sub">Onboard GPS Terminal</p>
+        </div>
+      </div>
+      <p class="eyebrow">Bus Device</p>
+      <h1>Live GPS Terminal</h1>
+      <p class="tracker-lead">Keep this device on the bus, grant location permission once, and leave this screen open while the trip is running.</p>
+      <div class="tracker-meta-grid">
+        <article class="tracker-meta-card">
+          <span>Signed In</span>
+          <strong>{{ overview.driver.full_name }}</strong>
+          <small>Driver account currently linked to this device.</small>
+        </article>
+        <article class="tracker-meta-card">
+          <span>Trip State</span>
+          <strong id="tripStateLabel">{{ 'Trip Active' if overview.active_trip else 'Waiting for dispatch' }}</strong>
+          <small id="tripStateDetail">{% if overview.active_trip %}{{ overview.active_trip.plate_number }} on {{ overview.active_trip.route_name }}{% else %}Select a bus and route to begin transmitting GPS.{% endif %}</small>
+        </article>
+        <article class="tracker-meta-card">
+          <span>GPS State</span>
+          <strong id="gpsStateLabel">{{ 'Ready to transmit' if overview.active_trip else 'Standby' }}</strong>
+          <small id="gpsDetail">{% if overview.trip_metrics.last_gps_at %}Last GPS log <span data-local-time="{{ overview.trip_metrics.last_gps_at }}">{{ overview.trip_metrics.last_gps_at }}</span>{% else %}No GPS fix has been submitted yet.{% endif %}</small>
+        </article>
+      </div>
+    </section>
+
+    <section class="tracker-terminal-grid">
+      <article class="tracker-terminal-card">
+        <div class="panel-head">
+          <h2>Trip Control</h2>
+          <span>Minimal controls for onboard use</span>
+        </div>
+
+        {% if overview.active_trip %}
+        <div class="trip-status live tracker-live-status">
+          <strong id="activeTripPlate">{{ overview.active_trip.plate_number }}</strong>
+          <span id="activeTripRoute">{{ overview.active_trip.route_name }}</span>
+          <small>Trip started at <span data-local-time="{{ overview.active_trip.started_at }}">{{ overview.active_trip.started_at }}</span></small>
+        </div>
+        <div class="status-strip">
+          <span class="status-chip active">Live trip</span>
+          <span id="trackingStatus" class="status-chip neutral">GPS standby</span>
+          <span id="wakeLockStatus" class="status-chip neutral">Screen wake lock pending</span>
+        </div>
+        <div class="button-row tracker-actions">
+          <button id="trackingBtn" class="primary tracking tracker-primary">Enable GPS</button>
+          <button id="endTripBtn" class="primary danger tracker-danger">End Trip</button>
+        </div>
+        {% else %}
+        <form id="startTripForm" class="trip-form tracker-trip-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="source" value="tracker-device">
+          <label>
+            <span>Select Bus</span>
+            <select name="bus_id" required>
+              <option value="">Choose an online bus</option>
+              {% for bus in overview.available_buses %}
+              <option value="{{ bus.id }}">{{ bus.plate_number }} - {{ bus.capacity }} seats</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>Select Route</span>
+            <select name="route_id" required>
+              <option value="">Choose route</option>
+              {% for route in overview.routes %}
+              <option value="{{ route.id }}">{{ route.route_name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div class="status-strip">
+            <span class="status-chip neutral">No active trip</span>
+            <span class="status-chip neutral">GPS starts immediately after trip start</span>
+          </div>
+          <div class="button-row tracker-actions">
+            <button id="startTripBtn" type="submit" class="primary tracker-primary">Start Trip</button>
+          </div>
+        </form>
+        {% endif %}
+      </article>
+
+      <article class="tracker-terminal-card tracker-telemetry">
+        <div class="panel-head">
+          <h2>Telemetry</h2>
+          <span>Most recent device fix</span>
+        </div>
+        <div class="tracker-telemetry-grid">
+          <article class="metric-card tracker-metric">
+            <span>Latitude</span>
+            <strong id="latitudeValue">--</strong>
+            <small>Current browser GPS latitude.</small>
+          </article>
+          <article class="metric-card tracker-metric">
+            <span>Longitude</span>
+            <strong id="longitudeValue">--</strong>
+            <small>Current browser GPS longitude.</small>
+          </article>
+          <article class="metric-card tracker-metric">
+            <span>Accuracy</span>
+            <strong id="accuracyValue">--</strong>
+            <small>Reported device accuracy in meters.</small>
+          </article>
+          <article class="metric-card tracker-metric">
+            <span>Speed</span>
+            <strong id="speedValue">--</strong>
+            <small>Device-reported movement speed.</small>
+          </article>
+          <article class="metric-card tracker-metric">
+            <span>Last Sent</span>
+            <strong id="lastSentValue">{% if overview.trip_metrics.last_gps_at %}<span data-local-time="{{ overview.trip_metrics.last_gps_at }}">{{ overview.trip_metrics.last_gps_at }}</span>{% else %}--{% endif %}</strong>
+            <small>Server acknowledgement time for the last update.</small>
+          </article>
+          <article class="metric-card tracker-metric">
+            <span>Wake Lock</span>
+            <strong id="wakeLockValue">Pending</strong>
+            <small>Attempts to keep the terminal awake during service.</small>
+          </article>
+        </div>
+      </article>
+    </section>
+
+    <div class="tracker-footer-actions">
+      <a href="{{ url_for('driver_dashboard') }}" class="logout-button tracker-link">Driver Dashboard</a>
+      <a href="{{ url_for('logout') }}" class="logout-button tracker-link" data-confirm="Are you sure you want to log out?">Logout</a>
+    </div>
+  </main>
+
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script type="application/json" id="trackerActiveTripData">{{ overview.active_trip|tojson }}</script>
+  <script src="{{ url_for('static', filename='js/tracker-device.js') }}"></script>
+</body>
+</html>

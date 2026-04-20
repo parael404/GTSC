@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gajoda Transportation Services</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+</head>
+<body data-live-bus-endpoint="{{ url_for('api_live_buses') }}" data-public-commuter-endpoint="{{ url_for('api_public_commuter') }}">
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+  <div class="home-shell">
+    <header class="home-header">
+      <a href="{{ url_for('landing') }}" class="brand-masthead">
+        <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+        <div class="brand-copy">
+          <span class="eyebrow">Gapan City Transport Cooperative</span>
+          <h1>Gajoda Transport Service Cooperative</h1>
+          <p>Daily minibus service for Gapan, Cabanatuan, and nearby communities.</p>
+        </div>
+      </a>
+      <nav class="home-nav">
+        <a href="{{ url_for('landing') }}">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2 12 4l9 7.2v8.3a.5.5 0 0 1-.5.5H15v-6H9v6H3.5a.5.5 0 0 1-.5-.5z"/></svg>
+          Home
+        </a>
+        <a href="{{ url_for('tracker') }}" class="nav-cta">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5c0 4.9 6.5 12.5 6.5 12.5S18.5 13.9 18.5 9A6.5 6.5 0 0 0 12 2.5m0 9.2A2.7 2.7 0 1 1 12 6.3a2.7 2.7 0 0 1 0 5.4"/></svg>
+          Track Minibus
+        </a>
+        <a href="{{ url_for('login') }}">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a5 5 0 0 0-5 5v3H5.5A1.5 1.5 0 0 0 4 11.5v8A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5v-8a1.5 1.5 0 0 0-1.5-1.5H17V7a5 5 0 0 0-5-5m-3 8V7a3 3 0 0 1 6 0v3z"/></svg>
+          Staff Login
+        </a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero-section">
+        <div class="hero-copy">
+          <span class="eyebrow">Gapan To Cabanatuan Minibus Service</span>
+          <h2>Know where the next Gajoda minibus is before you wait.</h2>
+          <p>
+            Check active buses, crowd level, and route direction for the Gajoda corridor. Plan your trip with clearer information
+            before going to the terminal or roadside stop.
+          </p>
+          <div class="hero-actions">
+            <a href="{{ url_for('tracker') }}" class="primary-button">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h8.2A3.3 3.3 0 0 1 18 7.3V9h.7a2 2 0 0 1 1.8 1.1l1 2A2 2 0 0 1 21.7 13v3.5H19a2.7 2.7 0 0 1-5.2 0H10a2.7 2.7 0 0 1-5.2 0H3V8a1.5 1.5 0 0 1 1-1.4zm11 2.5h1.5V7.3A1.8 1.8 0 0 0 14.7 5.5H15zM7.4 17.7a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4m9.2 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4"/></svg>
+              Open Live Tracker
+            </a>
+          </div>
+        </div>
+        <div class="hero-media">
+          <article class="hero-photo-card hero-photo-wide js-lightbox-trigger" tabindex="0" role="button" aria-label="Open fleet photo" data-image="{{ url_for('static', filename='img/gajoda-fleet.jpg') }}" data-title="Operational Fleet">
+            <img src="{{ url_for('static', filename='img/gajoda-fleet.jpg') }}" alt="Gajoda fleet lineup">
+            <div class="photo-caption">
+              <strong>Operational Fleet</strong>
+              <span>Real vehicles, real cooperative branding, and a clear public identity.</span>
+            </div>
+          </article>
+          <div class="hero-stats">
+            <article class="hero-stat accent">
+              <span class="icon-badge light"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h9A2.5 2.5 0 0 1 18 7.5V10h1.2a1.8 1.8 0 0 1 1.6 1l1.1 2.2c.1.3.1.5.1.8v2.5h-2.5a2.5 2.5 0 0 1-5 0h-5a2.5 2.5 0 0 1-5 0H3V9a1.5 1.5 0 0 1 1-1.4zM7 17.8a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6m10 0a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6"/></svg></span>
+              <span>Live Buses</span>
+              <strong>{{ active_bus_count }}</strong>
+              <p>Units currently reporting live trip movement.</p>
+            </article>
+            <article class="hero-stat">
+              <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5h3v14zm6 0V9h3v10zm6 0V3h3v16z"/></svg></span>
+              <span>Average Load</span>
+              <strong>{{ avg_crowd }}%</strong>
+              <p>Estimated passenger load across active trips.</p>
+            </article>
+            <article class="hero-stat">
+              <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 2.8 20h18.4zm1 14h-2v2h2zm0-7h-2v5h2z"/></svg></span>
+              <span>High Crowd Alerts</span>
+              <strong>{{ high_count }}</strong>
+              <p>Buses that may have limited room for boarding.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="photo-ribbon" id="gallery">
+        <article class="photo-feature tall js-lightbox-trigger" tabindex="0" role="button" aria-label="Open launch day photo" data-image="{{ url_for('static', filename='img/gajoda-launch-bus.jpg') }}" data-title="Launch Day">
+          <img src="{{ url_for('static', filename='img/gajoda-launch-bus.jpg') }}" alt="Gajoda launch bus">
+          <div class="photo-overlay">
+            <span class="eyebrow">Launch Day</span>
+            <strong>Public fleet reveal</strong>
+          </div>
+        </article>
+        <article class="photo-feature tall js-lightbox-trigger" tabindex="0" role="button" aria-label="Open ribbon cutting photo" data-image="{{ url_for('static', filename='img/gajoda-ribbon.jpg') }}" data-title="Community Ribbon Cutting">
+          <img src="{{ url_for('static', filename='img/gajoda-ribbon.jpg') }}" alt="Gajoda ribbon cutting event">
+          <div class="photo-overlay">
+            <span class="eyebrow">Community</span>
+            <strong>Ribbon-cutting ceremony</strong>
+          </div>
+        </article>
+        <article class="photo-feature wide js-lightbox-trigger" tabindex="0" role="button" aria-label="Open office photo" data-image="{{ url_for('static', filename='img/gajoda-office.jpg') }}" data-title="Operations Workspace">
+          <img src="{{ url_for('static', filename='img/gajoda-office.jpg') }}" alt="Gajoda office and dispatch workspace">
+          <div class="photo-overlay">
+            <span class="eyebrow">Operations</span>
+            <strong>Administrative and dispatch workspace</strong>
+          </div>
+        </article>
+      </section>
+
+      <section class="story-section" id="story">
+        <div class="section-heading">
+          <span class="eyebrow">About The Cooperative</span>
+          <h2>Serving commuters through organized local transport operations.</h2>
+        </div>
+        <div class="story-grid">
+          <article class="story-card js-lightbox-trigger" tabindex="0" role="button" aria-label="Open fleet operations photo" data-image="{{ url_for('static', filename='img/gajoda-fleet.jpg') }}" data-title="Visible Fleet Operations">
+            <div class="story-copy">
+              <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h10a4 4 0 0 1 4 4v1h1a1 1 0 0 1 1 1v3h-2.2a2.8 2.8 0 0 1-5.6 0H9.8a2.8 2.8 0 0 1-5.6 0H3V9a2 2 0 0 1 2-2m2 10.2A1.2 1.2 0 1 0 7 14.8a1.2 1.2 0 0 0 0 2.4m9 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4"/></svg></span>
+              <h3>Recognizable fleet service</h3>
+              <p>Gajoda minibuses operate as part of a cooperative service built around daily commuter movement and local route demand.</p>
+            </div>
+            <img src="{{ url_for('static', filename='img/gajoda-fleet.jpg') }}" alt="Gajoda fleet parked at the terminal">
+          </article>
+          <article class="story-card js-lightbox-trigger" tabindex="0" role="button" aria-label="Open office and dispatch photo" data-image="{{ url_for('static', filename='img/gajoda-office.jpg') }}" data-title="Office and Dispatch Presence">
+            <div class="story-copy">
+              <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V8l8-5 8 5v12h-5v-6H9v6zm7-2h2v-4h-2z"/></svg></span>
+              <h3>Local dispatch and support</h3>
+              <p>Operations staff and cooperative officers help coordinate trips, monitor service activity, and support daily transport needs.</p>
+            </div>
+            <img src="{{ url_for('static', filename='img/gajoda-office.jpg') }}" alt="Gajoda office interior">
+          </article>
+          <article class="story-card text-only">
+            <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a7.5 7.5 0 0 0-7.5 7.5c0 5.7 7.5 11.5 7.5 11.5s7.5-5.8 7.5-11.5A7.5 7.5 0 0 0 12 2.5m0 10.2A2.7 2.7 0 1 1 12 7.3a2.7 2.7 0 0 1 0 5.4"/></svg></span>
+            <span>Service Focus</span>
+            <strong>Clearer trip information for passengers</strong>
+            <p>Commuters can check active buses and crowd level before deciding when and where to board.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="cooperative-section">
+        <div class="cooperative-media">
+          <article class="document-card js-lightbox-trigger" tabindex="0" role="button" aria-label="Open mission board photo" data-image="{{ url_for('static', filename='img/gajoda-mission.jpg') }}" data-title="Mission, Vision, and Values">
+            <img src="{{ url_for('static', filename='img/gajoda-mission.jpg') }}" alt="Gajoda mission vision values board">
+          </article>
+          <article class="document-card js-lightbox-trigger" tabindex="0" role="button" aria-label="Open organization chart photo" data-image="{{ url_for('static', filename='img/gajoda-org-chart.jpg') }}" data-title="Organizational Structure">
+            <img src="{{ url_for('static', filename='img/gajoda-org-chart.jpg') }}" alt="Gajoda organizational structure board">
+          </article>
+        </div>
+        <div class="cooperative-copy">
+          <span class="eyebrow">Cooperative Identity</span>
+          <h2>Built around cooperative service and everyday public transport.</h2>
+          <p>
+            Gajoda connects people along the corridor through scheduled minibus operations, cooperative management, and a service
+            model focused on reliability, accountability, and commuter convenience.
+          </p>
+          <div class="value-points">
+            <article>
+              <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 2.8 6.4 7 .6-5.3 4.6 1.6 6.9L12 17 5.9 20.5l1.6-6.9L2.2 9l7-.6z"/></svg></span>
+              <strong>Mission and vision</strong>
+              <p>Service values focus on reliable trips, professional conduct, and public trust.</p>
+            </article>
+            <article>
+              <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7v5c0 4.7 3.4 8.2 8 9 4.6-.8 8-4.3 8-9V7zm0 4.2 3 1.6v3.1c0 2.3-1.2 4.1-3 5-1.8-.9-3-2.7-3-5V8.8z"/></svg></span>
+              <strong>Defined leadership</strong>
+              <p>Officers, committees, and staff share responsibility for keeping operations organized.</p>
+            </article>
+            <article>
+              <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11a4 4 0 1 1 3.5-5.9A5 5 0 0 0 12 14H4.5A2.5 2.5 0 0 1 7 11m10 0a2.5 2.5 0 0 1 2.5 3H12a5 5 0 0 0 1.5-8.9A4 4 0 1 1 17 11M12 7a3 3 0 1 1 0 6 3 3 0 0 1 0-6m0 7c3.3 0 6 1.8 6 4v2H6v-2c0-2.2 2.7-4 6-4"/></svg></span>
+              <strong>Public service focus</strong>
+              <p>Live trip information supports commuters who need faster decisions before boarding.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      {% if service_alerts %}
+      <section class="alerts-section">
+        <div class="section-heading">
+          <span class="eyebrow">Service Alerts</span>
+          <h2>Current commuter notices from the Gajoda corridor.</h2>
+        </div>
+        <div class="alerts-grid">
+          {% for alert in service_alerts %}
+          <article class="alert-card severity-{{ alert.severity }}">
+            <strong>{{ alert.title }}</strong>
+            <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} · {{ alert.stop_name }}{% endif %}</span>
+            <span>Visible until {{ alert.expires_at or 'today' }}</span>
+            <p>{{ alert.message }}</p>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      <section class="coverage-section" id="coverage">
+        <div class="section-heading">
+          <span class="eyebrow">Route Coverage</span>
+          <h2>Main corridor served by the cooperative.</h2>
+        </div>
+        <div class="coverage-grid">
+          <article class="coverage-card primary">
+            <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17.5V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10.5A2.5 2.5 0 0 1 17.5 20l1 2H16l-1-2H9l-1 2H5.5l1-2A2.5 2.5 0 0 1 4 17.5M7 6v5h10V6zm1.5 11.2a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4m7 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4"/></svg></span>
+            <h3>{{ primary_route.routeName if primary_route else 'Gajoda Terminal to Cabanatuan' }}</h3>
+            <p>{{ primary_route.startPoint if primary_route else 'Gajoda Garage and Office' }} to {{ primary_route.endPoint if primary_route else 'Cabanatuan Terminal' }}</p>
+            <div class="coverage-meta">
+              <span>Estimated duration: {{ primary_route.expectedDurationMinutes if primary_route else 48 }} minutes</span>
+              <span>Estimated distance: {{ primary_route.distanceKm if primary_route else '25.0' }} km</span>
+            </div>
+          </article>
+          <article class="coverage-card">
+            <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 0-7 7c0 5.2 7 11 7 11s7-5.8 7-11a7 7 0 0 0-7-7m0 9.5A2.5 2.5 0 1 1 12 7a2.5 2.5 0 0 1 0 5.5"/></svg></span>
+            <h3>Commuter Access</h3>
+            <p>Use the public tracker to check bus movement and crowd level before going to the terminal.</p>
+          </article>
+          <article class="coverage-card">
+            <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H4zm2 2v7h12V7zm2 12h8v2H8z"/></svg></span>
+            <h3>Operations View</h3>
+            <p>Staff can monitor active trips, passenger load, and service activity throughout the day.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <span class="eyebrow">Live Tracking Preview</span>
+          <h2>Live service status at a glance.</h2>
+        </div>
+        <div class="preview-grid">
+          <article class="preview-card metrics-card">
+            <div class="mini-stat">
+              <span class="mini-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h12a3 3 0 0 1 3 3v2h1.2a1.8 1.8 0 0 1 1.8 1.8V17h-2.5a2.5 2.5 0 0 1-5 0h-5a2.5 2.5 0 0 1-5 0H3V9a1 1 0 0 1 1-1"/></svg></span>
+              <span>Active buses</span>
+              <strong>{{ active_bus_count }}</strong>
+            </div>
+            <div class="mini-stat">
+              <span class="mini-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V5h3v14zm5.5 0V9h3v10zM16 19V3h3v16z"/></svg></span>
+              <span>Average load</span>
+              <strong>{{ avg_crowd }}%</strong>
+            </div>
+            <div class="mini-stat">
+              <span class="mini-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 2.8 20h18.4zm1 14h-2v2h2zm0-7h-2v5h2z"/></svg></span>
+              <span>High crowd</span>
+              <strong>{{ high_count }}</strong>
+            </div>
+            <a href="{{ url_for('tracker') }}" class="primary-button wide">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5c0 4.9 6.5 12.5 6.5 12.5S18.5 13.9 18.5 9A6.5 6.5 0 0 0 12 2.5m0 9.2A2.7 2.7 0 1 1 12 6.3a2.7 2.7 0 0 1 0 5.4"/></svg>
+              Open Full Tracker
+            </a>
+          </article>
+          <article class="preview-card bus-preview">
+            <h3>Online Bus Preview</h3>
+            {% if preview_buses %}
+              <div class="preview-list">
+                {% for bus in preview_buses %}
+                <article>
+                  <strong>{{ bus.id }}</strong>
+                  <span>{{ bus.direction }}</span>
+                  <p>{{ bus.passengers }}/{{ bus.capacity }} passengers · {{ bus.crowdLevel }} crowd</p>
+                </article>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="muted">No buses are reporting live movement right now. Check again once trips begin.</p>
+            {% endif %}
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="home-footer">
+      <div class="footer-brand">
+        <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="" aria-hidden="true">
+        <strong>Gajoda Transportation Services</strong>
+        <p>Live route visibility for commuters using the Gajoda minibus service.</p>
+      </div>
+      <div class="footer-contact">
+        <strong><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5zm2.3-.5 5.7 4.6L17.7 5zM6 7.1v11.4c0 .3.2.5.5.5h11c.3 0 .5-.2.5-.5V7.1l-6 4.8z"/></svg> Contact</strong>
+        <p>Phone and office schedule will be added soon.</p>
+        <a href="https://www.facebook.com/GAJODATSC" target="_blank" rel="noopener">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 8.5V6.8c0-.8.5-1 1-1h1.7V3h-2.5C11.6 3 10 4.6 10 7.2v1.3H8v3h2V21h3.5v-9.5h2.6l.4-3z"/></svg>
+          Facebook: GAJODA TSC
+        </a>
+      </div>
+      <div class="footer-links">
+        <strong><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg> Links</strong>
+        <a href="{{ url_for('landing') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2 12 4l9 7.2v8.3a.5.5 0 0 1-.5.5H15v-6H9v6H3.5a.5.5 0 0 1-.5-.5z"/></svg>Home</a>
+        <a href="{{ url_for('tracker') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5c0 4.9 6.5 12.5 6.5 12.5S18.5 13.9 18.5 9A6.5 6.5 0 0 0 12 2.5m0 9.2A2.7 2.7 0 1 1 12 6.3a2.7 2.7 0 0 1 0 5.4"/></svg>Track Minibus</a>
+        <a href="{{ url_for('login') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a5 5 0 0 0-5 5v3H5.5A1.5 1.5 0 0 0 4 11.5v8A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5v-8a1.5 1.5 0 0 0-1.5-1.5H17V7a5 5 0 0 0-5-5m-3 8V7a3 3 0 0 1 6 0v3z"/></svg>Staff Login</a>
+      </div>
+    </footer>
+  </div>
+  <div class="lightbox-backdrop" id="landingLightbox" hidden aria-hidden="true">
+    <button type="button" class="lightbox-close" id="landingLightboxClose" aria-label="Close enlarged image">Close</button>
+    <figure class="lightbox-figure">
+      <img id="landingLightboxImage" src="" alt="">
+      <figcaption id="landingLightboxCaption"></figcaption>
+    </figure>
+  </div>
+  <script type="application/json" id="publicLiveBusesData">{{ buses_json|safe }}</script>
+  <script type="application/json" id="publicCommuterData">{{ commuter_data_json|safe }}</script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script src="{{ url_for('static', filename='js/public-tracker-config.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/landing-lightbox.js') }}"></script>
+</body>
+</html>

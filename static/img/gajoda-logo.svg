@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title>Gajoda Transport Service Cooperative</title>
+  <defs>
+    <path id="topArc" d="M78 256a178 178 0 0 1 356 0" />
+    <path id="bottomArc" d="M434 256a178 178 0 0 1-356 0" />
+  </defs>
+  <circle cx="256" cy="256" r="220" fill="#fff" stroke="#D60000" stroke-width="8"/>
+  <circle cx="256" cy="256" r="170" fill="none" stroke="#D60000" stroke-width="6"/>
+  <g fill="#D60000" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" letter-spacing="1.5">
+    <text text-anchor="middle">
+      <textPath href="#topArc" startOffset="50%">GAJODA TRANSPORT SERVICE COOPERATIVE</textPath>
+    </text>
+    <text text-anchor="middle">
+      <textPath href="#bottomArc" startOffset="50%">• GAPAN CITY •</textPath>
+    </text>
+  </g>
+  <path fill="#D60000" d="M256 105l39.4 118.4H420l-100.8 73.2 38.5 118.4L256 342.4 154.3 415l38.5-118.4L92 223.4h124.6z"/>
+  <text x="256" y="378" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="700" fill="#D60000" stroke="#fff" stroke-width="8" paint-order="stroke fill">2019</text>
+</svg>

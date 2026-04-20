@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=theme-sidebar-1">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body data-admin-live-endpoint="{{ url_for('api_admin_live') }}" data-admin-initial-tab="{{ active_tab }}">
+  {% set maintenance_count = overview.fleet_rows | selectattr('status', 'equalto', 'maintenance') | list | length %}
+  {% set online_count = overview.fleet_rows | selectattr('status', 'equalto', 'online') | list | length %}
+  {% set route_count = overview.route_rows | length %}
+  {% macro admin_icon(name) -%}
+    <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {%- if name == 'overview' -%}
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h5A1.5 1.5 0 0 1 12 5.5v5A1.5 1.5 0 0 1 10.5 12h-5A1.5 1.5 0 0 1 4 10.5zm8 8A1.5 1.5 0 0 1 13.5 12h5a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5h-5a1.5 1.5 0 0 1-1.5-1.5zM4 15h6v2H4zm10-8h6v2h-6z"/>
+      {%- elif name == 'bus' -%}
+      <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h9A2.5 2.5 0 0 1 18 7.5V10h1.2a1.8 1.8 0 0 1 1.6 1l1.1 2.2c.1.3.1.5.1.8v2.5h-2.5a2.5 2.5 0 0 1-5 0h-5a2.5 2.5 0 0 1-5 0H3V9a1.5 1.5 0 0 1 1-1.4zM7 17.8a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6m10 0a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6"/>
+      {%- elif name == 'camera' -%}
+      <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h8A2.5 2.5 0 0 1 17 7.5v1.1l3-1.8V17l-3-1.8v1.3a2.5 2.5 0 0 1-2.5 2.5h-8A2.5 2.5 0 0 1 4 16.5z"/>
+      {%- elif name == 'chart' -%}
+      <path d="M4 19V5h3v14zm6 0V9h3v10zm6 0V3h3v16z"/>
+      {%- elif name == 'route' -%}
+      <path d="M7 4a3 3 0 0 0-1 5.8V14a5 5 0 0 0 5 5h2a3 3 0 1 0 0-2h-2a3 3 0 0 1-3-3V9.8A3 3 0 1 0 7 4m0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2m10 10a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/>
+      {%- elif name == 'user' -%}
+      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8m0 2c-4.1 0-7 2.1-7 5v1h14v-1c0-2.9-2.9-5-7-5"/>
+      {%- elif name == 'report' -%}
+      <path d="M6 3h9l3 3v15H6zm8 1.8V7h2.2zM8 10v2h8v-2zm0 4v2h8v-2zm0 4h5v-2H8z"/>
+      {%- elif name == 'audit' -%}
+      <path d="M12 3 4 7v5c0 4.7 3.4 8.2 8 9 4.6-.8 8-4.3 8-9V7zm-1 12.6-3-3 1.4-1.4 1.6 1.6 3.8-4 1.4 1.4z"/>
+      {%- elif name == 'log' -%}
+      <path d="M5 4h14v16H5zm3 4v2h8V8zm0 4v2h8v-2zm0 4v2h5v-2z"/>
+      {%- elif name == 'alert' -%}
+      <path d="M12 2 2.8 20h18.4zm1 14h-2v2h2zm0-7h-2v5h2z"/>
+      {%- elif name == 'download' -%}
+      <path d="M11 4h2v8l3-3 1.4 1.4L12 15.8l-5.4-5.4L8 9l3 3zM5 18h14v2H5z"/>
+      {%- elif name == 'logout' -%}
+      <path d="M4 4h8v2H6v12h6v2H4zm11.6 4.4L17.2 10H10v2h7.2l-1.6 1.6L17 15l4-4-4-4z"/>
+      {%- elif name == 'clock' -%}
+      <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m1 9.2 3.2 1.9-1 1.7L11 13.3V7h2z"/>
+      {%- else -%}
+      <path d="M12 2.5a9.5 9.5 0 1 0 0 19 9.5 9.5 0 0 0 0-19m1 14.5h-2v-2h2zm0-4h-2V7h2z"/>
+      {%- endif -%}
+    </svg>
+  {%- endmacro %}
+  <div class="admin-layout">
+    <main class="admin-content">
+      <header class="admin-header">
+        <div class="header-main">
+          <button class="admin-burger" id="adminBurger" aria-label="Open admin menu">
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+          <div class="sidebar-brand">
+            <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+            <div>
+              <p class="brand-name">Gajoda Transportation Services</p>
+              <p class="brand-sub">Admin Control</p>
+            </div>
+          </div>
+        </div>
+        <div class="header-actions">
+          {% if false %}
+          <button
+            type="button"
+            class="notification-chip {% if not overview.password_reset_alerts %}is-hidden{% endif %}"
+            id="passwordResetHeaderNotice"
+            data-target="profiles"
+            aria-live="polite"
+          >
+            {{ admin_icon('alert') }}
+            <span id="passwordResetHeaderCount">{{ overview.password_reset_alerts|length }}</span>
+            <strong>Password reset</strong>
+          </button>
+          {% endif %}
+          <a href="{{ url_for('admin_report') }}" class="ghost-button">{{ admin_icon('download') }}Export Report</a>
+        </div>
+      </header>
+
+    <div class="admin-menu-overlay" id="adminMenuOverlay">
+      <aside class="admin-sidebar">
+        <div class="sidebar-brand">
+          <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+          <div>
+            <p class="brand-name">Gajoda Transportation Services</p>
+            <p class="brand-sub">Admin Control</p>
+          </div>
+        </div>
+
+        <div class="sidebar-topbar">
+          <strong>{{ admin_icon('overview') }}Menu</strong>
+          <button type="button" class="theme-toggle sidebar-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+          <button class="menu-close" id="adminMenuClose" aria-label="Close admin menu">×</button>
+        </div>
+
+        <nav class="sidebar-nav" id="adminTabNav">
+          <button type="button" class="tab-link {% if active_tab == 'operations' %}active{% endif %}" data-target="operations">{{ admin_icon('bus') }}Live Operations</button>
+          <button type="button" class="tab-link {% if active_tab == 'add-bus' %}active{% endif %}" data-target="add-bus">{{ admin_icon('bus') }}Add / Edit Bus</button>
+          {# Camera integration is hidden for defense readiness; the section remains available at /admin?tab=cameras. #}
+          {% if false %}
+          <button type="button" class="tab-link {% if active_tab == 'cameras' %}active{% endif %}" data-target="cameras">{{ admin_icon('camera') }}Camera Feeds</button>
+          {% endif %}
+          <button type="button" class="tab-link {% if active_tab in ['overview', 'analytics'] %}active{% endif %}" data-target="analytics">{{ admin_icon('chart') }}Crowd Analytics</button>
+          {% if false %}
+          <button type="button" class="tab-link {% if active_tab == 'password-resets' %}active{% endif %}" data-target="password-resets">
+            {{ admin_icon('alert') }}Password Resets
+            <span class="tab-count {% if not overview.password_reset_alerts %}is-hidden{% endif %}" id="passwordResetTabCount">{{ overview.password_reset_alerts|length }}</span>
+          </button>
+          {% endif %}
+          <button type="button" class="tab-link {% if active_tab == 'commuter' %}active{% endif %}" data-target="commuter">{{ admin_icon('route') }}Commuter Info</button>
+          {% if false %}
+          <button type="button" class="tab-link {% if active_tab == 'profiles' %}active{% endif %}" data-target="profiles">{{ admin_icon('user') }}Profiles</button>
+          {% endif %}
+          <button type="button" class="tab-link {% if active_tab == 'reports' %}active{% endif %}" data-target="reports">{{ admin_icon('report') }}Reports</button>
+          <button type="button" class="tab-link {% if active_tab == 'audit' %}active{% endif %}" data-target="audit">{{ admin_icon('audit') }}Audit Trail</button>
+          <button type="button" class="tab-link {% if active_tab == 'logs' %}active{% endif %}" data-target="logs">{{ admin_icon('log') }}Logs</button>
+        </nav>
+
+        <div class="sidebar-summary">
+          <div>
+            <span class="summary-icon">{{ admin_icon('bus') }}</span>
+            <span>Active Buses</span>
+            <strong>{{ overview.active_bus_count }}</strong>
+          </div>
+          <div>
+            <span class="summary-icon">{{ admin_icon('alert') }}</span>
+            <span>High Crowd</span>
+            <strong>{{ overview.high_crowd_count }}</strong>
+          </div>
+          <div>
+            <span class="summary-icon">{{ admin_icon('chart') }}</span>
+            <span>Avg Crowd</span>
+            <strong>{{ overview.avg_crowd }}</strong>
+          </div>
+        </div>
+
+        <div class="sidebar-actions">
+          <a href="{{ url_for('admin_report') }}" class="ghost-button">{{ admin_icon('download') }}Export Report</a>
+          <a href="{{ url_for('logout') }}" class="solid-button" data-confirm="Are you sure you want to log out?">{{ admin_icon('logout') }}Logout</a>
+        </div>
+      </aside>
+    </div>
+      {% if false %}
+      <section class="password-reset-notice {% if not overview.password_reset_alerts %}is-hidden{% endif %}" id="passwordResetNotice" role="status" aria-live="polite">
+        <div class="notice-icon">{{ admin_icon('alert') }}</div>
+        <div class="notice-content">
+          <div>
+            <p class="notice-kicker">Account Security Alert</p>
+            <h2 id="passwordResetNoticeTitle">{{ overview.password_reset_alerts|length }} password reset request{% if overview.password_reset_alerts|length != 1 %}s{% endif %} need admin review</h2>
+            <p id="passwordResetNoticeLatest">{% if overview.password_reset_alerts %}Latest request: {{ overview.password_reset_alerts[0].description }}{% endif %}</p>
+          </div>
+          <button type="button" class="notice-action" data-target="profiles">{{ admin_icon('user') }}Reset in Profiles</button>
+        </div>
+        <div class="notice-list" id="passwordResetNoticeList">
+          {% for alert in overview.password_reset_alerts %}
+          <div class="notice-pill">
+            <p><strong>{{ alert.created_at }}</strong> {{ alert.description }}</p>
+            <form method="POST">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="dismiss_password_reset_notification">
+              <input type="hidden" name="notification_id" value="{{ alert.id }}">
+              <input type="hidden" name="redirect_tab" value="{{ active_tab }}">
+              <button type="submit" class="notification-dismiss notification-dismiss-small" aria-label="Dismiss password reset notification">&times;</button>
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+      <section id="operations" class="content-section {% if active_tab == 'operations' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Live Operations</p>
+            <h2>{{ admin_icon('bus') }}Current fleet movement and active coordinates</h2>
+          </div>
+        </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('alert') }}Operations Notifications</h3>
+            <span id="operationNotificationSummary">{{ overview.operation_notifications|length }} unread event{% if overview.operation_notifications|length != 1 %}s{% endif %}</span>
+          </div>
+          <div class="alert-admin-list" id="operationNotificationList">
+            {% for notification in overview.operation_notifications %}
+            <article class="alert-admin-item severity-{{ 'critical' if notification.notification_type == 'bus_full' else 'warning' if notification.notification_type == 'high_crowd' else 'info' }}">
+              <div>
+                <strong>{{ notification.title }}</strong>
+                <span>{{ notification.created_at }} / {{ notification.notification_type|replace('_', ' ')|title }}</span>
+                <p>{{ notification.description }}</p>
+              </div>
+              <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="dismiss_admin_notification">
+                <input type="hidden" name="notification_id" value="{{ notification.id }}">
+                <input type="hidden" name="redirect_tab" value="operations">
+                <button type="submit" class="mini-button">Mark Read</button>
+              </form>
+            </article>
+            {% else %}
+            <p class="section-copy">No operations notifications right now.</p>
+            {% endfor %}
+          </div>
+        </article>
+
+        <div class="operations-grid">
+          <article class="panel panel-large">
+            <div class="panel-head">
+              <div>
+                <h3>{{ admin_icon('route') }}Live Tracking Map</h3>
+                <span>Latest active bus GPS position</span>
+              </div>
+            </div>
+            <div class="admin-map-shell">
+              <div id="adminMap"></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('bus') }}Active Bus Coordinates</h3>
+              <span>Live positions now in the system</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Bus</th>
+                  <th>Driver</th>
+                  <th>Route</th>
+                  <th>Crowd</th>
+                  <th>Location</th>
+                </tr>
+              </thead>
+              <tbody id="liveBusTableBody">
+                {% for bus in overview.live_bus_rows %}
+                <tr>
+                  <td>{{ bus.plate_number }}</td>
+                  <td>{{ bus.driver }}</td>
+                  <td>{{ bus.route_name }}</td>
+                  <td>{{ bus.occupancy }}/{{ bus.capacity }} · {{ bus.crowd_level }}</td>
+                  <td>{{ bus.location }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('overview') }}Fleet Status</h3>
+              <span>Bus health and live occupancy</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Bus</th>
+                  <th>Route</th>
+                  <th>Status</th>
+                  <th>Occupancy</th>
+                  <th>Peak</th>
+                  <th>Update</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for bus in overview.fleet_rows %}
+                <tr>
+                  <td>{{ bus.plate_number }}</td>
+                  <td>{{ bus.route_name or 'No assigned route' }}</td>
+                  <td>{{ bus.status }} / {{ bus.trip_status }}</td>
+                  <td>{{ bus.occupancy }}/{{ bus.capacity }}</td>
+                  <td>{{ bus.peak_occupancy }}</td>
+                  <td>
+                    <form method="POST" class="inline-status-form">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <input type="hidden" name="action" value="update_bus_status">
+                      <input type="hidden" name="bus_id" value="{{ bus.id }}">
+                      <input type="hidden" name="redirect_tab" value="operations">
+                      <select name="status">
+                        <option value="online" {% if bus.status == 'online' %}selected{% endif %}>Online</option>
+                        <option value="offline" {% if bus.status == 'offline' %}selected{% endif %}>Offline</option>
+                        <option value="maintenance" {% if bus.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                      </select>
+                      <button type="submit" class="mini-button">Save</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+        </div>
+      </section>
+
+      {% if false %}
+      <section id="password-resets" class="content-section {% if active_tab == 'password-resets' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Admin Notifications</p>
+            <h2>{{ admin_icon('alert') }}Password reset requests</h2>
+          </div>
+        </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('user') }}Requests Needing Review</h3>
+            <span id="passwordResetTabSummary">{{ overview.password_reset_alerts|length }} unread request{% if overview.password_reset_alerts|length != 1 %}s{% endif %}</span>
+          </div>
+          <div class="alert-admin-list" id="passwordResetTabList">
+            {% for alert in overview.password_reset_alerts %}
+            <article class="alert-admin-item severity-critical">
+              <div>
+                <strong>{{ alert.title or 'Password reset request' }}</strong>
+                <span>{{ alert.created_at }}{% if alert.role %} · {{ alert.role|title }}{% endif %}</span>
+                <p>{{ alert.description }}</p>
+              </div>
+              <div class="notification-actions">
+                <a class="mini-button" href="{{ url_for('admin_dashboard', tab='profiles') }}">Open Profiles</a>
+                <form method="POST">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="dismiss_password_reset_notification">
+                  <input type="hidden" name="notification_id" value="{{ alert.id }}">
+                  <input type="hidden" name="redirect_tab" value="password-resets">
+                  <button type="submit" class="notification-dismiss" aria-label="Dismiss password reset notification">&times;</button>
+                </form>
+              </div>
+            </article>
+            {% else %}
+            <p class="section-copy">No password reset requests right now.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+      {% endif %}
+
+      <section id="add-bus" class="content-section {% if active_tab == 'add-bus' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Fleet Setup</p>
+            <h2>{{ admin_icon('bus') }}Add or edit buses</h2>
+            <p class="section-copy">Manage bus name, seat capacity, operating status, and unit notes from one place.</p>
+          </div>
+        </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('bus') }}Add New Bus</h3>
+            <span>New records default to 30 seats</span>
+          </div>
+          <form method="POST" class="stack-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="add_bus">
+            <input type="hidden" name="redirect_tab" value="add-bus">
+            <div class="form-grid">
+              <label>
+                <span>Bus Name</span>
+                <input type="text" name="plate_number" placeholder="Bus 05" required>
+              </label>
+              <label>
+                <span>Status</span>
+                <select name="status">
+                  <option value="offline" selected>Offline</option>
+                  <option value="online">Online</option>
+                  <option value="maintenance">Maintenance</option>
+                </select>
+              </label>
+              <label>
+                <span>Seats</span>
+                <input type="number" name="capacity" value="30" min="1" step="1" required>
+              </label>
+            </div>
+            <label>
+              <span>Notes</span>
+              <textarea name="notes" rows="4" placeholder="Unit assignment, condition, or remarks"></textarea>
+            </label>
+            <p class="form-note">After saving, the bus appears in Fleet Status and gets Front Road, Passenger Cabin, and Rear Door camera records.</p>
+            <button type="submit" class="solid-button form-submit">{{ admin_icon('bus') }}Add Bus</button>
+          </form>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('overview') }}Edit Existing Buses</h3>
+            <span>Update bus name, seats, status, and notes</span>
+          </div>
+          <div class="bus-edit-list">
+            {% for bus in overview.fleet_rows %}
+            <form method="POST" class="bus-edit-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="update_bus_details">
+              <input type="hidden" name="bus_id" value="{{ bus.id }}">
+              <input type="hidden" name="redirect_tab" value="add-bus">
+              <label>
+                <span>Bus Name</span>
+                <input type="text" name="plate_number" value="{{ bus.plate_number }}" required>
+              </label>
+              <label>
+                <span>Seats</span>
+                <input type="number" name="capacity" value="{{ bus.capacity }}" min="1" step="1" required>
+              </label>
+              <label>
+                <span>Status</span>
+                <select name="status">
+                  <option value="online" {% if bus.status == 'online' %}selected{% endif %}>Online</option>
+                  <option value="offline" {% if bus.status == 'offline' %}selected{% endif %}>Offline</option>
+                  <option value="maintenance" {% if bus.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                </select>
+              </label>
+              <label class="bus-edit-notes">
+                <span>Notes</span>
+                <textarea name="notes" rows="2" placeholder="Unit notes">{{ bus.notes or '' }}</textarea>
+              </label>
+              <button type="submit" class="mini-button">Save Bus</button>
+            </form>
+            {% else %}
+            <p class="section-copy">No buses are registered yet.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <section id="cameras" class="content-section {% if active_tab == 'cameras' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Camera Feeds</p>
+            <h2>{{ admin_icon('camera') }}Admin-only live camera monitoring</h2>
+            <p class="section-copy">Configure camera-ready bus records now, then attach the real stream URL after hardware or gateway selection.</p>
+          </div>
+        </div>
+
+        <article class="panel camera-monitor-panel">
+          <div class="panel-head">
+            <div>
+              <h3>{{ admin_icon('camera') }}Admin Camera Monitoring</h3>
+              <span>Three camera feeds per bus: front road, passenger cabin, and rear door</span>
+            </div>
+            <div class="camera-toolbar">
+              <div class="camera-mode-control" aria-label="Camera viewing mode">
+                <button type="button" class="camera-mode-button active" data-camera-mode="bus">By Bus</button>
+                <button type="button" class="camera-mode-button" data-camera-mode="all">All Buses</button>
+              </div>
+              <select id="cameraBusSelect" class="camera-select" aria-label="Select bus for camera view"></select>
+              <select id="cameraSelect" class="camera-select" aria-label="Select bus camera">
+                {% for camera in overview.camera_rows %}
+                <option value="{{ camera.id }}">{{ camera.plate_number }} - {{ camera.camera_name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="camera-view-mode" id="cameraAllMode">
+            <div class="camera-feed-grid" id="cameraAllGrid"></div>
+          </div>
+          <div class="camera-view-mode is-active" id="cameraBusMode">
+            <div class="camera-feed-grid" id="cameraBusGrid"></div>
+          </div>
+          <div class="camera-meta-grid">
+            <div>
+              <span>Bus</span>
+              <strong id="cameraBusLabel">--</strong>
+            </div>
+            <div>
+              <span>Status</span>
+              <strong id="cameraStatusLabel">--</strong>
+            </div>
+            <div>
+              <span>Stream</span>
+              <strong id="cameraStreamLabel">--</strong>
+            </div>
+            <div>
+              <span>Last Seen</span>
+              <strong id="cameraSeenLabel">--</strong>
+            </div>
+          </div>
+          <div class="camera-config-list">
+            {% for camera in overview.camera_rows %}
+            <form method="POST" class="camera-config-form" data-camera-form="{{ camera.id }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="update_camera_settings">
+              <input type="hidden" name="camera_id" value="{{ camera.id }}">
+              <input type="hidden" name="redirect_tab" value="cameras">
+              <label>
+                <span>Camera</span>
+                <input type="text" name="camera_name" value="{{ camera.camera_name }}" required>
+              </label>
+              <label>
+                <span>Type</span>
+                <select name="stream_type">
+                  <option value="hls" {% if camera.stream_type == 'hls' %}selected{% endif %}>HLS</option>
+                  <option value="mjpeg" {% if camera.stream_type == 'mjpeg' %}selected{% endif %}>MJPEG</option>
+                  <option value="embed" {% if camera.stream_type == 'embed' %}selected{% endif %}>Embed</option>
+                  <option value="external" {% if camera.stream_type == 'external' %}selected{% endif %}>External</option>
+                  <option value="webrtc" {% if camera.stream_type == 'webrtc' %}selected{% endif %}>WebRTC</option>
+                  <option value="rtsp_gateway" {% if camera.stream_type == 'rtsp_gateway' %}selected{% endif %}>RTSP Gateway</option>
+                </select>
+              </label>
+              <label>
+                <span>Status</span>
+                <select name="status">
+                  <option value="unconfigured" {% if camera.status == 'unconfigured' %}selected{% endif %}>Unconfigured</option>
+                  <option value="online" {% if camera.status == 'online' %}selected{% endif %}>Online</option>
+                  <option value="offline" {% if camera.status == 'offline' %}selected{% endif %}>Offline</option>
+                  <option value="maintenance" {% if camera.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                </select>
+              </label>
+              <label class="camera-url-field">
+                <span>Stream URL</span>
+                <input type="url" name="stream_url" value="{{ camera.stream_url }}" placeholder="Add camera stream URL later">
+              </label>
+              <label class="camera-notes-field">
+                <span>Notes</span>
+                <input type="text" name="notes" value="{{ camera.notes }}" placeholder="Hardware, SIM, gateway, or install notes">
+              </label>
+              <button type="submit" class="mini-button">Save Camera</button>
+            </form>
+            {% else %}
+            <p class="section-copy">No camera records are configured yet.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <section id="analytics" class="content-section hero-section {% if active_tab in ['overview', 'analytics'] %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Crowd Analytics</p>
+            <h2>{{ admin_icon('chart') }}Passenger behavior, route demand, and decision support</h2>
+            <p class="section-copy">Fleet analytics, crowd trends, and operational insights are combined here so the key totals stay visible above the charts.</p>
+          </div>
+        </div>
+
+        <div class="analytics-block">
+          <div class="analytics-block-head">
+            <div>
+              <p class="eyebrow">Overview</p>
+              <h3>Current operating picture</h3>
+            </div>
+            <span>Totals and crowd status</span>
+          </div>
+          <div class="stats-grid dense">
+            <article class="stat-card">
+              <span class="stat-card-icon">{{ admin_icon('user') }}</span>
+              <span>Passengers Today</span>
+              <strong>{{ overview.today_total }}</strong>
+              <small>Yesterday: {{ overview.yesterday_total }}</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon">{{ admin_icon('bus') }}</span>
+              <span>Trips Today</span>
+              <strong>{{ overview.trips_today }}</strong>
+              <small>{{ overview.records_today }} crowd updates</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon">{{ admin_icon('clock') }}</span>
+              <span>Peak Hour</span>
+              <strong>{{ overview.peak_hour_label }}</strong>
+              <small>{{ overview.peak_hour_value }} passengers</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon">{{ admin_icon('route') }}</span>
+              <span>Routes Covered</span>
+              <strong>{{ route_count }}</strong>
+              <small>Tracked in analytics</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon">{{ admin_icon('bus') }}</span>
+              <span>Online Fleet</span>
+              <strong>{{ online_count }}</strong>
+              <small>{{ maintenance_count }} in maintenance</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon tone-good">{{ admin_icon('chart') }}</span>
+              <span>Low Crowd Trips</span>
+              <strong>{{ overview.low_count }}</strong>
+              <small>Comfortable load</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon tone-warn">{{ admin_icon('chart') }}</span>
+              <span>Medium Crowd Trips</span>
+              <strong>{{ overview.medium_count }}</strong>
+              <small>Monitor closely</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon tone-hot">{{ admin_icon('alert') }}</span>
+              <span>High Crowd Trips</span>
+              <strong>{{ overview.high_crowd_count }}</strong>
+              <small>Needs intervention</small>
+            </article>
+          </div>
+        </div>
+
+        <div class="analytics-block">
+          <div class="analytics-block-head">
+            <div>
+              <p class="eyebrow">Stats And Graphs</p>
+              <h3>Passenger movement trends</h3>
+            </div>
+            <span>Daily and hourly demand</span>
+          </div>
+          <div class="charts-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{{ admin_icon('chart') }}7-Day Passenger Trend</h3>
+                <span>Trip records aggregated by day</span>
+              </div>
+              <canvas id="dailyChart"></canvas>
+            </article>
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{{ admin_icon('clock') }}Hourly Demand</h3>
+                <span>Today only</span>
+              </div>
+              <canvas id="hourlyChart"></canvas>
+            </article>
+          </div>
+        </div>
+
+        <div class="analytics-block">
+          <div class="analytics-block-head">
+            <div>
+              <p class="eyebrow">Route And Stop Performance</p>
+              <h3>Where passenger demand is concentrated</h3>
+            </div>
+            <span>Routes, stops, and boarding points</span>
+          </div>
+          <div class="charts-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{{ admin_icon('route') }}Route Performance Summary</h3>
+                <span>Direction, trips, load, and publication status</span>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Route</th>
+                    <th>Trips</th>
+                    <th>Passengers</th>
+                    <th>Avg Load</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for route in overview.route_rows %}
+                  <tr>
+                    <td>{{ route.route_name }}</td>
+                    <td>{{ route.trip_count }}</td>
+                    <td>{{ route.passengers }}</td>
+                    <td>{{ route.avg_load_percent }}%</td>
+                    <td>{% if route.is_published %}Published{% else %}Hidden{% endif %}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </article>
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{{ admin_icon('bus') }}Top Boarding Stops</h3>
+                <span>Most active stops from transaction records</span>
+              </div>
+              <canvas id="stopChart"></canvas>
+            </article>
+          </div>
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('route') }}Stop-Level Demand</h3>
+              <span>Boarding and drop-off activity per stop</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Stop</th>
+                  <th>Boarded</th>
+                  <th>Dropped</th>
+                  <th>Transactions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for stop in overview.stop_rows %}
+                <tr>
+                  <td>{{ stop.stop_name }}</td>
+                  <td>{{ stop.boarded }}</td>
+                  <td>{{ stop.dropped }}</td>
+                  <td>{{ stop.transactions }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+        </div>
+
+        <div class="analytics-block">
+          <div class="analytics-block-head">
+            <div>
+              <p class="eyebrow">Passenger Profile</p>
+              <h3>Passenger category composition</h3>
+            </div>
+            <span>7-day passenger type mix</span>
+          </div>
+          <div class="profile-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{{ admin_icon('user') }}Passenger Type Mix</h3>
+                <span>Students, PWD, seniors, and regular passengers</span>
+              </div>
+              <canvas id="mixChart"></canvas>
+            </article>
+          </div>
+        </div>
+
+        <div class="analytics-block">
+          <div class="analytics-block-head">
+            <div>
+              <p class="eyebrow">Operational Insights</p>
+              <h3>Recommended actions from the analytics</h3>
+            </div>
+            <span>{{ overview.insights|length }} active recommendations</span>
+          </div>
+          <div class="insights-grid">
+            {% for insight in overview.insights %}
+            <article class="insight-card tone-{{ insight.tone }}">
+              <span class="insight-category">{{ insight.category }}</span>
+              <h3>{{ insight.title }}</h3>
+              <p>{{ insight.body }}</p>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section id="commuter" class="content-section {% if active_tab == 'commuter' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Commuter Info</p>
+            <h2>{{ admin_icon('route') }}Route publication, minimum fares, and public alerts</h2>
+          </div>
+        </div>
+
+        <div class="report-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('route') }}Published Route Settings</h3>
+              <span>Control route visibility and displayed minimum fares</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Route</th>
+                  <th>Status</th>
+                  <th>Regular Fare</th>
+                  <th>Discounted Fare</th>
+                  <th>Update</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in overview.route_rows %}
+                <tr>
+                  <td>{{ row.route_name }}</td>
+                  <td>{{ 'Published' if row.is_published else 'Hidden' }}</td>
+                  <td>PHP {{ row.minimum_fare }}</td>
+                  <td>PHP {{ row.discounted_fare }}</td>
+                  <td>
+                    <form method="POST" class="inline-status-form route-settings-form">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <input type="hidden" name="action" value="update_route_settings">
+                      <input type="hidden" name="route_id" value="{{ row.id }}">
+                      <input type="hidden" name="redirect_tab" value="commuter">
+                      <select name="is_published">
+                        <option value="1" {% if row.is_published %}selected{% endif %}>Published</option>
+                        <option value="0" {% if not row.is_published %}selected{% endif %}>Hidden</option>
+                      </select>
+                      <input type="text" name="minimum_fare" inputmode="numeric" pattern="[0-9]*" value="{{ '%.0f'|format(row.minimum_fare) }}" data-regular-fare-input>
+                      <input type="text" name="discounted_fare" inputmode="numeric" pattern="[0-9]*" value="{{ '%.0f'|format(row.discounted_fare) }}" data-discounted-fare-input>
+                      <button type="submit" class="mini-button">Save</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+
+          {# Fare matrix is hidden for now; backend support remains available for later pricing review. #}
+          {% if false %}
+          <article class="panel panel-large">
+            <div class="panel-head">
+              <h3>{{ admin_icon('chart') }}Fare Matrix</h3>
+              <span>Edit stop-to-stop prices used by the conductor terminal</span>
+            </div>
+            <p class="form-note">Values shown are either saved matrix fares or the current computed fallback. Save a route to turn those rows into conductor fare overrides.</p>
+
+            <div class="fare-matrix-groups">
+              {% for route in overview.fare_matrix_editor %}
+              <details class="fare-matrix-route" {% if loop.first %}open{% endif %}>
+                <summary>
+                  <strong>{{ route.route_name }}</strong>
+                  <span>{{ route.stop_count }} stops / {{ route.segments|length }} fare rows</span>
+                </summary>
+                <form method="POST" class="fare-matrix-table-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="save_fare_matrix_table">
+                  <input type="hidden" name="redirect_tab" value="commuter">
+                  <input type="hidden" name="route_id" value="{{ route.id }}">
+                  <div class="fare-matrix-scroll">
+                    <table class="fare-matrix-table">
+                      <thead>
+                        <tr>
+                          <th>From</th>
+                          <th>To</th>
+                          <th>Regular Fare</th>
+                          <th>Discounted Fare</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for segment in route.segments %}
+                        <tr>
+                          <td>
+                            {{ segment.origin_stop }}
+                            <input type="hidden" name="origin_stop" value="{{ segment.origin_stop }}">
+                          </td>
+                          <td>
+                            {{ segment.destination_stop }}
+                            <input type="hidden" name="destination_stop" value="{{ segment.destination_stop }}">
+                          </td>
+                          <td>
+                            <input type="text" name="regular_fare" inputmode="numeric" pattern="[0-9]*" value="{{ '%.0f'|format(segment.regular_fare) }}" required>
+                          </td>
+                          <td>
+                            <input type="text" name="discounted_fare" inputmode="numeric" pattern="[0-9]*" value="{{ '%.0f'|format(segment.discounted_fare) }}" required>
+                          </td>
+                          <td>{{ 'Saved' if segment.is_saved else 'Computed' }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button type="submit" class="solid-button form-submit">Save {{ route.route_name }} Matrix</button>
+                </form>
+              </details>
+              {% else %}
+              <p class="section-copy">No published routes are available for fare editing.</p>
+              {% endfor %}
+            </div>
+          </article>
+          {% endif %}
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('alert') }}Create Service Alert</h3>
+              <span>Publish notices for route delays, crowding, or dispatch advisories</span>
+            </div>
+            <form method="POST" class="stack-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="create_service_alert">
+              <input type="hidden" name="redirect_tab" value="commuter">
+              <label>
+                <span>Title</span>
+                <input type="text" name="title" required>
+              </label>
+              <label>
+                <span>Message</span>
+                <textarea name="message" rows="4" required></textarea>
+              </label>
+              <div class="form-grid">
+                <label>
+                  <span>Severity</span>
+                  <select name="severity">
+                    <option value="info">Info</option>
+                    <option value="warning">Warning</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Route</span>
+                  <select name="route_id">
+                    <option value="">System-wide</option>
+                    {% for row in overview.route_rows %}
+                    <option value="{{ row.id }}">{{ row.route_name }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  <span>Stop Name</span>
+                  <input type="text" name="stop_name" placeholder="Optional specific stop">
+                </label>
+                <label>
+                  <span>Visible For</span>
+                  <select name="duration">
+                    <option value="end_of_day" selected>Until end of day</option>
+                    <option value="1h">1 hour</option>
+                    <option value="4h">4 hours</option>
+                    <option value="8h">8 hours</option>
+                    <option value="24h">24 hours</option>
+                    <option value="3d">3 days</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit" class="solid-button form-submit">Publish Alert</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('alert') }}Active Alerts</h3>
+              <span>Currently visible on the commuter pages</span>
+            </div>
+            <div class="alert-admin-list">
+              {% for alert in overview.service_alerts %}
+              <article class="alert-admin-item severity-{{ alert.severity }}">
+                <div>
+                  <strong>{{ alert.title }}</strong>
+                  <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} · {{ alert.stop_name }}{% endif %}</span>
+                  <span>Expires: {{ alert.expires_at or 'End of day cleanup' }}</span>
+                  <p>{{ alert.message }}</p>
+                </div>
+                <form method="POST">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="clear_service_alert">
+                  <input type="hidden" name="alert_id" value="{{ alert.id }}">
+                  <input type="hidden" name="redirect_tab" value="commuter">
+                  <button type="submit" class="mini-button">Delete</button>
+                </form>
+              </article>
+              {% else %}
+              <p class="section-copy">No active alerts.</p>
+              {% endfor %}
+            </div>
+          </article>
+
+          <details class="panel filter-dropdown">
+            <summary class="filter-summary">
+              <span>{{ admin_icon('audit') }}Alert Archive</span>
+              <strong>Expired and completed service alerts</strong>
+            </summary>
+            <div class="alert-admin-list">
+              {% for alert in overview.archived_service_alerts %}
+              <article class="alert-admin-item severity-{{ alert.severity }}">
+                <div>
+                  <strong>{{ alert.title }}</strong>
+                  <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} Â· {{ alert.stop_name }}{% endif %}</span>
+                  <span>Archived: {{ alert.archived_at }}</span>
+                  <p>{{ alert.message }}</p>
+                </div>
+              </article>
+              {% else %}
+              <p class="section-copy">No archived alerts yet.</p>
+              {% endfor %}
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section id="reports" class="content-section {% if active_tab == 'reports' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Reports</p>
+            <h2>{{ admin_icon('report') }}Structured trip, bus, passenger, and revenue reporting</h2>
+            <p class="section-copy">
+              {% if overview.report_filters.is_filtered %}
+                Showing trips from {{ overview.report_filters.start or 'the first record' }} to {{ overview.report_filters.end or 'the latest record' }}.
+              {% else %}
+                Showing the latest report rows. Select dates to review a specific period.
+              {% endif %}
+            </p>
+          </div>
+        </div>
+
+        <details class="panel filter-dropdown" {% if overview.report_filters.is_filtered %}open{% endif %}>
+          <summary class="filter-summary">
+            <span>{{ admin_icon('clock') }}Date Filter</span>
+            <strong>
+              {% if overview.report_filters.is_filtered %}
+                {{ overview.report_filters.start or 'First record' }} to {{ overview.report_filters.end or 'Latest record' }}
+              {% else %}
+                All dates
+              {% endif %}
+            </strong>
+          </summary>
+          <form method="GET" class="stack-form filter-dropdown-body">
+            <input type="hidden" name="tab" value="reports">
+            <div class="form-grid">
+              <label>
+                <span>From</span>
+                <input type="date" name="report_start" id="reportStartDate" value="{{ overview.report_filters.start }}">
+              </label>
+              <label>
+                <span>To</span>
+                <input type="date" name="report_end" id="reportEndDate" value="{{ overview.report_filters.end }}" {% if overview.report_filters.start %}min="{{ overview.report_filters.start }}"{% endif %}>
+              </label>
+              <label>
+                <span>Export</span>
+                <a
+                  href="{{ url_for('admin_report', report_start=overview.report_filters.start, report_end=overview.report_filters.end) }}"
+                  class="ghost-button"
+                >{{ admin_icon('download') }}PDF</a>
+              </label>
+            </div>
+            <div class="filter-actions">
+              <button type="submit" class="solid-button form-submit">{{ admin_icon('report') }}Apply Filter</button>
+              <a href="{{ url_for('admin_dashboard', tab='reports') }}" class="ghost-button">Clear Filter</a>
+            </div>
+          </form>
+        </details>
+
+        <div class="stats-grid dense">
+          <article class="stat-card">
+            <span>Trips in Audit</span>
+            <strong>{{ overview.audit_summary.trip_count }}</strong>
+            <small>{{ overview.audit_summary.completed_trip_count }} completed</small>
+          </article>
+          <article class="stat-card">
+            <span>Total Revenue</span>
+            <strong>PHP {{ '%.2f'|format(overview.audit_summary.total_revenue) }}</strong>
+            <small>Across recorded trips</small>
+          </article>
+          <article class="stat-card">
+            <span>Passengers Boarded</span>
+            <strong>{{ overview.audit_summary.total_boarded }}</strong>
+            <small>Average {{ overview.audit_summary.average_trip_boarded }} per trip</small>
+          </article>
+          <article class="stat-card">
+            <span>Average Trip Revenue</span>
+            <strong>PHP {{ '%.2f'|format(overview.audit_summary.average_trip_revenue) }}</strong>
+            <small>{{ overview.audit_summary.active_trip_count }} active right now</small>
+          </article>
+          <article class="stat-card">
+            <span>Highest Revenue Trip</span>
+            <strong>
+              {% if overview.audit_summary.top_revenue_trip %}
+                {{ overview.audit_summary.top_revenue_trip.plate_number }}
+              {% else %}
+                No data
+              {% endif %}
+            </strong>
+            <small>
+              {% if overview.audit_summary.top_revenue_trip %}
+                PHP {{ '%.2f'|format(overview.audit_summary.top_revenue_trip.revenue) }}
+              {% else %}
+                Waiting for transactions
+              {% endif %}
+            </small>
+          </article>
+        </div>
+
+        <div class="report-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('route') }}Route Reports</h3>
+              <span>Passenger volume and load percentage</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Route</th>
+                  <th>Trips</th>
+                  <th>Passengers</th>
+                  <th>Avg Load</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in overview.report_route_rows %}
+                <tr>
+                  <td>{{ row.route_name }}</td>
+                  <td>{{ row.trip_count }}</td>
+                  <td>{{ row.passengers }}</td>
+                  <td>{{ row.avg_load_percent }}%</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('chart') }}Bus Revenue and Passenger Breakdown</h3>
+              <span>Filter charts by bus to inspect passenger mix and revenue composition</span>
+            </div>
+            <div class="form-grid">
+              <label>
+                <span>Select Bus</span>
+                <select id="reportBusFilter">
+                  <option value="all">All buses</option>
+                  {% for plate_number in overview.report_bus_analytics.bus_options %}
+                  <option value="{{ plate_number }}">{{ plate_number }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+            </div>
+            <div class="charts-grid">
+              <article class="panel">
+                <div class="panel-head">
+                  <h3>{{ admin_icon('user') }}Passenger Breakdown</h3>
+                  <span id="reportPassengerCaption">Passenger mix for all buses</span>
+                </div>
+                <canvas id="reportPassengerBreakdownChart"></canvas>
+              </article>
+              <article class="panel">
+                <div class="panel-head">
+                  <h3>{{ admin_icon('report') }}Revenue Breakdown</h3>
+                  <span id="reportRevenueCaption">Revenue composition for all buses</span>
+                </div>
+                <canvas id="reportRevenueBreakdownChart"></canvas>
+              </article>
+              <article class="panel">
+                <div class="panel-head">
+                  <h3>{{ admin_icon('chart') }}Daily Passenger Totals</h3>
+                  <span>Daily totals for the selected bus</span>
+                </div>
+                <canvas id="reportDailyPassengersChart"></canvas>
+              </article>
+              <article class="panel">
+                <div class="panel-head">
+                  <h3>{{ admin_icon('chart') }}Daily Revenue Totals</h3>
+                  <span>Daily revenue trend for the selected bus</span>
+                </div>
+                <canvas id="reportDailyRevenueChart"></canvas>
+              </article>
+            </div>
+          </article>
+
+        </div>
+      </section>
+
+      {% if false %}
+      <section id="profiles" class="content-section {% if active_tab == 'profiles' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Profiles</p>
+            <h2>{{ admin_icon('user') }}Create new admin, driver, and conductor accounts</h2>
+          </div>
+        </div>
+
+        <div class="report-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('user') }}Create Profile</h3>
+              <span>Add a new staff account for the system</span>
+            </div>
+            <form method="POST" class="stack-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="create_profile">
+              <input type="hidden" name="redirect_tab" value="profiles">
+              <div class="form-grid">
+                <label>
+                  <span>Full Name</span>
+                  <input type="text" name="full_name" required>
+                </label>
+                <label>
+                  <span>Username</span>
+                  <input type="text" name="username" required>
+                </label>
+                <label>
+                  <span>Email</span>
+                  <input type="email" name="email" required>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  <span>Password</span>
+                  <span class="password-field" data-password-field>
+                    <input type="password" name="password" required>
+                    <button type="button" class="password-toggle" data-password-toggle aria-label="Show password">Show</button>
+                  </span>
+                </label>
+                <label>
+                  <span>Role</span>
+                  <select name="role" required>
+                    <option value="driver">Driver</option>
+                    <option value="conductor">Conductor</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit" class="solid-button form-submit">{{ admin_icon('user') }}Create Profile</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('user') }}Existing Profiles</h3>
+              <span>Edit staff account details or remove inactive accounts</span>
+            </div>
+            <div class="profile-edit-list">
+              {% for user in overview.user_rows %}
+              <article class="profile-edit-card">
+                <form method="POST" class="profile-edit-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="update_profile">
+                  <input type="hidden" name="user_id" value="{{ user.id }}">
+                  <input type="hidden" name="redirect_tab" value="profiles">
+                  <label>
+                    <span>Full Name</span>
+                    <input type="text" name="full_name" value="{{ user.full_name }}" required>
+                  </label>
+                  <label>
+                    <span>Username</span>
+                    <input type="text" name="username" value="{{ user.username }}" required>
+                  </label>
+                  <label>
+                    <span>Email</span>
+                    <input type="email" name="email" value="{{ user.email }}" required>
+                  </label>
+                  <label>
+                    <span>Role</span>
+                    <select name="role">
+                      <option value="driver" {% if user.role == 'driver' %}selected{% endif %}>Driver</option>
+                      <option value="conductor" {% if user.role == 'conductor' %}selected{% endif %}>Conductor</option>
+                      <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>New Password</span>
+                    <span class="password-field" data-password-field>
+                      <input type="password" name="password" placeholder="Leave blank to keep current">
+                      <button type="button" class="password-toggle" data-password-toggle aria-label="Show password">Show</button>
+                    </span>
+                  </label>
+                  <div class="profile-edit-actions">
+                    <span>Created {{ user.created_at }}</span>
+                    <button type="submit" class="mini-button">Save Edit</button>
+                  </div>
+                </form>
+                <form method="POST" class="profile-delete-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="delete_profile">
+                  <input type="hidden" name="user_id" value="{{ user.id }}">
+                  <input type="hidden" name="redirect_tab" value="profiles">
+                  <button type="submit" class="mini-button danger-button" data-confirm="Delete this profile?">Delete</button>
+                </form>
+              </article>
+              {% else %}
+              <p class="section-copy">No profiles are registered yet.</p>
+              {% endfor %}
+            </div>
+          </article>
+
+          {% if false %}
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Bus-Specific Daily Tabulation</h3>
+              <span>Each bus has its own section, including status when there is no trip data</span>
+            </div>
+            <div class="alert-admin-list">
+              {% for bus in overview.bus_report_sections %}
+              <article class="alert-admin-item">
+                <div>
+                  <strong>{{ bus.plate_number }}</strong>
+                  <span>Status: {{ bus.status }} / {{ bus.trip_status }} · {{ bus.route_name }}</span>
+                  <p>
+                    Total passengers: {{ bus.total_passengers }}.
+                    Student {{ bus.passengers_by_type.student }}, PWD {{ bus.passengers_by_type.pwd }}, Senior {{ bus.passengers_by_type.senior }}, Regular {{ bus.passengers_by_type.regular }}.
+                    Total revenue: PHP {{ '%.2f'|format(bus.total_revenue) }}.
+                    Student PHP {{ '%.2f'|format(bus.revenue_by_type.student) }}, PWD PHP {{ '%.2f'|format(bus.revenue_by_type.pwd) }}, Senior PHP {{ '%.2f'|format(bus.revenue_by_type.senior) }}, Regular PHP {{ '%.2f'|format(bus.revenue_by_type.regular) }}.
+                  </p>
+                </div>
+                {% if bus.rows %}
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Driver</th>
+                      <th>Route</th>
+                      <th>Passenger Breakdown</th>
+                      <th>Total Pax</th>
+                      <th>Revenue Breakdown</th>
+                      <th>Total Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in bus.rows %}
+                    <tr>
+                      <td>{{ row.service_date }}<br><small>{{ row.trip_count }} trip(s)</small></td>
+                      <td>{{ row.driver_name }}</td>
+                      <td>{{ row.route_name }}</td>
+                      <td>Student {{ row.student_count }}, PWD {{ row.pwd_count }}, Senior {{ row.senior_count }}, Regular {{ row.regular_count }}</td>
+                      <td>{{ row.total_passengers }}</td>
+                      <td>Student PHP {{ '%.2f'|format(row.student_revenue) }}, PWD PHP {{ '%.2f'|format(row.pwd_revenue) }}, Senior PHP {{ '%.2f'|format(row.senior_revenue) }}, Regular PHP {{ '%.2f'|format(row.regular_revenue) }}</td>
+                      <td>PHP {{ '%.2f'|format(row.total_revenue) }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                {% else %}
+                <p class="section-copy">No trip data recorded for this bus yet.</p>
+                {% endif %}
+              </article>
+              {% else %}
+              <p class="section-copy">No bus report data available yet.</p>
+              {% endfor %}
+            </div>
+          </article>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+
+      <section id="audit" class="content-section {% if active_tab == 'audit' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Audit Trail</p>
+            <h2>{{ admin_icon('audit') }}Trip-level audit plus transaction-level history for review</h2>
+          </div>
+        </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('audit') }}Detailed Trip Audit</h3>
+            <span>Bus-centered audit view matching manual revenue and passenger review workflows</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Trip</th>
+                <th>Team</th>
+                <th>Passenger Mix</th>
+                <th>Net Passengers</th>
+                <th>Revenue</th>
+                <th>Crowd Updates</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in overview.trip_audit_rows %}
+              <tr>
+                <td>
+                  {{ row.plate_number }} / {{ row.route_name }}<br>
+                  <small>#{{ row.trip_id }} · {{ row.started_at }}</small>
+                </td>
+                <td>
+                  {{ row.driver_name or 'No driver' }}<br>
+                  <small>{{ row.conductor_name or 'No conductor' }}</small>
+                </td>
+                <td>
+                  Student {{ row.student_count }}, PWD {{ row.pwd_count }}, Senior {{ row.senior_count }}, Regular {{ row.regular_count }}
+                </td>
+                <td>
+                  {{ row.net_passengers }}<br>
+                  <small>{{ row.passengers_boarded }} in / {{ row.passengers_dropped }} out</small>
+                </td>
+                <td>
+                  PHP {{ '%.2f'|format(row.revenue) }}<br>
+                  <small>{{ row.stops_served }} stops served</small>
+                </td>
+                <td>
+                  {{ row.crowd_updates }}<br>
+                  <small>{{ row.latest_stop }}</small>
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="6">No trip audit data yet.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('log') }}Recent Trip Transactions</h3>
+            <span>Latest boarding and drop events captured by the system</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Trip</th>
+                <th>Route</th>
+                <th>Event</th>
+                <th>Stop</th>
+                <th>Conductor</th>
+                <th>Occupancy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in overview.recent_transaction_audit %}
+              <tr>
+                <td>{{ row.recorded_at }}</td>
+                <td>{{ row.plate_number }} / #{{ row.trip_id }}</td>
+                <td>{{ row.route_name }}</td>
+                <td>{{ row.event_type }} {{ row.quantity }} {{ row.passenger_type }}</td>
+                <td>{{ row.stop_name }}</td>
+                <td>{{ row.conductor_name or 'Unassigned' }}</td>
+                <td>{{ row.occupancy_after }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('bus') }}Bus-Specific Daily Tabulation</h3>
+            <span>Each bus has its own section, including status when there is no trip data</span>
+          </div>
+          <div class="alert-admin-list">
+            {% for bus in overview.bus_report_sections %}
+            <article class="alert-admin-item">
+              <div>
+                <strong>{{ bus.plate_number }}</strong>
+                <span>Status: {{ bus.status }} / {{ bus.trip_status }} · {{ bus.route_name }}</span>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>PWD</th>
+                    <th>Senior</th>
+                    <th>Regular</th>
+                    <th>Total Pax</th>
+                    <th>Student Rev</th>
+                    <th>PWD Rev</th>
+                    <th>Senior Rev</th>
+                    <th>Regular Rev</th>
+                    <th>Total Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>{{ bus.passengers_by_type.student }}</td>
+                    <td>{{ bus.passengers_by_type.pwd }}</td>
+                    <td>{{ bus.passengers_by_type.senior }}</td>
+                    <td>{{ bus.passengers_by_type.regular }}</td>
+                    <td>{{ bus.total_passengers }}</td>
+                    <td>PHP {{ '%.2f'|format(bus.revenue_by_type.student) }}</td>
+                    <td>PHP {{ '%.2f'|format(bus.revenue_by_type.pwd) }}</td>
+                    <td>PHP {{ '%.2f'|format(bus.revenue_by_type.senior) }}</td>
+                    <td>PHP {{ '%.2f'|format(bus.revenue_by_type.regular) }}</td>
+                    <td>PHP {{ '%.2f'|format(bus.total_revenue) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              {% if bus.rows %}
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Driver</th>
+                    <th>Route</th>
+                    <th>Passenger Breakdown</th>
+                    <th>Total Pax</th>
+                    <th>Revenue Breakdown</th>
+                    <th>Total Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in bus.rows %}
+                  <tr>
+                    <td>{{ row.service_date }}<br><small>#{{ row.trip_id }}</small></td>
+                    <td>{{ row.driver_name }}</td>
+                    <td>{{ row.route_name }}</td>
+                    <td>Student {{ row.student_count }}, PWD {{ row.pwd_count }}, Senior {{ row.senior_count }}, Regular {{ row.regular_count }}</td>
+                    <td>{{ row.total_passengers }}</td>
+                    <td>Student PHP {{ '%.2f'|format(row.student_revenue) }}, PWD PHP {{ '%.2f'|format(row.pwd_revenue) }}, Senior PHP {{ '%.2f'|format(row.senior_revenue) }}, Regular PHP {{ '%.2f'|format(row.regular_revenue) }}</td>
+                    <td>PHP {{ '%.2f'|format(row.total_revenue) }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% else %}
+              <p class="section-copy">No trip data recorded for this bus yet.</p>
+              {% endif %}
+            </article>
+            {% else %}
+            <p class="section-copy">No bus report data available yet.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <section id="logs" class="content-section {% if active_tab == 'logs' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Logs</p>
+            <h2>{{ admin_icon('log') }}Recent operational activity and staff attendance</h2>
+          </div>
+        </div>
+
+        <section class="panel log-panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('clock') }}Staff Attendance</h3>
+            <span>Login time with linked trip assignment, route, and trip timing</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Staff</th>
+                <th>Login Time</th>
+                <th>Trip</th>
+                <th>Trip Start</th>
+                <th>Trip End</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in overview.attendance_rows %}
+              <tr>
+                <td>{{ row.full_name }}<br><small>{{ row.role }} / {{ row.username }}</small></td>
+                <td>{{ row.login_time }}</td>
+                <td>
+                  {% if row.trip_id %}
+                    {{ row.plate_number }} / {{ row.route_name }}<br><small>Trip #{{ row.trip_id }}</small>
+                  {% else %}
+                    No trip linked
+                  {% endif %}
+                </td>
+                <td>{{ row.trip_started_at or 'No trip start' }}</td>
+                <td>{{ row.trip_ended_at or 'Still active / none' }}</td>
+                <td>{{ row.trip_status or 'attendance only' }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="6">No attendance data recorded yet.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </section>
+
+        <section class="panel log-panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('log') }}Recent Logs</h3>
+            <span>System activity for reports and monitoring</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Role</th>
+                <th>Action</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for log in overview.recent_logs %}
+              <tr>
+                <td>{{ log.created_at }}</td>
+                <td>{{ log.role or 'system' }}</td>
+                <td>{{ log.action }}</td>
+                <td>{{ log.description }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/password-toggle.js') }}"></script>
+  <script type="application/json" id="adminChartData">{{ overview.charts|tojson }}</script>
+  <script src="{{ url_for('static', filename='js/admin-dashboard.js') }}?v=polling-socket-1"></script>
+</body>
+</html>

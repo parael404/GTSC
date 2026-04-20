@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conductor Ticketing Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/conductor.css') }}?v=theme-sidebar-1">
+</head>
+<body
+  data-conductor-live-endpoint="{{ url_for('conductor_live') }}"
+  data-conductor-panels-endpoint="{{ url_for('conductor_panels') }}"
+  data-conductor-location-endpoint="{{ url_for('conductor_location') }}"
+  data-csrf-token="{{ csrf_token() }}"
+>
+  {% if not overview.active_trip %}
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+  {% endif %}
+  <div class="conductor-shell">
+    <header class="conductor-topbar">
+      <div>
+        <div class="brand-lockup compact">
+          <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+          <div>
+            <p class="brand-name">Gajoda Transportation Services</p>
+            <p class="brand-sub">Conductor Ticketing</p>
+          </div>
+        </div>
+        <p class="eyebrow">Conductor Terminal</p>
+        <h1>Boarding ticket terminal</h1>
+      </div>
+    </header>
+
+    {% if not overview.active_trip %}
+    <section class="setup-panel">
+      <div class="setup-intro">
+        <span class="status idle">Waiting For Driver</span>
+        <h2>Pick the active bus for this conductor.</h2>
+        <p>The terminal saves tickets to the database, prints the receipt, and can use this device GPS if the driver tracker is unavailable.</p>
+      </div>
+      <form method="POST" class="setup-card attach-card">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="attach_trip">
+        <label>
+          <span>Active Bus</span>
+          <select name="trip_id" required>
+            <option value="">Select active bus</option>
+            {% for trip in overview.available_trips %}
+            <option value="{{ trip.id }}">{{ trip.plate_number }} - {{ trip.route_name }} - {{ trip.driver_name or 'No driver name' }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">Open Ticket Terminal</button>
+      </form>
+    </section>
+    {% else %}
+    <section class="terminal-shell">
+      <div class="terminal-top">
+        <article class="trip-banner">
+          <span class="status live">Trip Active</span>
+          <h2>{{ overview.active_trip.plate_number }} - {{ overview.active_trip.route_name }}</h2>
+          <p>{{ overview.active_trip.start_point }} to {{ overview.active_trip.end_point }}</p>
+        </article>
+
+        <div class="terminal-status">
+          <div class="status-card emphasis">
+            <span>Current Onboard</span>
+            <strong id="currentOccupancy">{{ overview.capacity.count }}/{{ overview.capacity.limit }}</strong>
+            <small>{{ overview.capacity.label }} load</small>
+          </div>
+          <div class="status-card">
+            <span>Current Origin</span>
+            <strong id="currentStop">{{ overview.current_stop }}</strong>
+            <small id="trackingStatus">Starting...</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="terminal-main">
+        <section class="ticket-terminal">
+          <div class="terminal-head">
+            <div>
+              <h3>Pick destination, then passenger type</h3>
+              <p>GPS decides the origin stop, the conductor picks the destination and fare type, then saves and prints one boarding ticket.</p>
+            </div>
+          </div>
+
+          <form method="POST" id="ticketMockForm" class="ticket-mock-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="record_transaction">
+            <input type="hidden" name="origin_stop" id="originStopInput" value="{{ overview.current_stop }}">
+            <input type="hidden" name="destination_stop" id="destinationStopInput" value="{{ overview.transaction_form.destination_stop }}">
+            <input type="hidden" name="passenger_type" id="passengerTypeInput" value="{{ overview.transaction_form.passenger_type }}">
+
+            <section class="destination-section">
+              <div class="section-title-row">
+                <h3>Destinations</h3>
+                <span>{{ overview.destination_options|length }} upcoming stop(s)</span>
+              </div>
+              <div class="destination-grid">
+                {% for stop in overview.destination_options %}
+                <button
+                  type="button"
+                  class="destination-chip"
+                  data-destination="{{ stop.name }}"
+                  data-fare-student="{{ stop.fare_guide.student }}"
+                  data-fare-pwd="{{ stop.fare_guide.pwd }}"
+                  data-fare-senior="{{ stop.fare_guide.senior }}"
+                  data-fare-regular="{{ stop.fare_guide.regular }}"
+                >
+                  <span class="destination-index">{{ stop.sequence }}</span>
+                  <strong>{{ stop.name }}</strong>
+                </button>
+                {% else %}
+                <p class="muted">No more downstream destinations available from the current GPS stop.</p>
+                {% endfor %}
+              </div>
+            </section>
+
+            <section class="fare-type-section">
+              <div class="section-title-row">
+                <h3>Passenger Type</h3>
+                <span>One save records one passenger</span>
+              </div>
+              <div class="passenger-grid">
+                {% for key, label in [('student', 'Student'), ('senior', 'Senior'), ('pwd', 'PWD'), ('regular', 'Standard')] %}
+                <button type="button" class="passenger-chip" data-passenger-type="{{ key }}">{{ label }}</button>
+                {% endfor %}
+              </div>
+            </section>
+
+            <section class="ticket-summary">
+              <div class="summary-sheet">
+                <p><strong>Route:</strong> <span>{{ overview.active_trip.route_name }}</span></p>
+                <p><strong>Origin:</strong> <span id="summaryOrigin">{{ overview.current_stop }}</span></p>
+                <p><strong>Destination:</strong> <span id="summaryDestination">Select destination</span></p>
+                <p><strong>Fare Type:</strong> <span id="summaryPassengerType">Select passenger type</span></p>
+                <p><strong>Fare:</strong> <span id="summaryFare">PHP 0</span></p>
+              </div>
+              <div class="action-bar">
+                <button type="button" class="secondary preview-button" id="previewMockButton" disabled>Preview Receipt</button>
+                <button type="submit" class="primary update-button" id="saveMockButton" disabled>Save + Print Ticket</button>
+              </div>
+            </section>
+          </form>
+          <form method="POST" class="offboard-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="offboard_due">
+            <button type="submit" class="secondary">Off Board Current Stop</button>
+          </form>
+
+          <form method="POST" class="terminal-stop">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="stop_monitoring">
+            <button type="submit" class="secondary">Stop Monitoring</button>
+          </form>
+        </section>
+
+        <aside class="terminal-sidebar slim-sidebar">
+          <div class="sidebar-tool-row">
+            <button type="button" class="theme-toggle sidebar-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+          </div>
+          <section class="summary-card compact-card">
+            <h3>Trip Info</h3>
+            <div class="summary-list">
+              <div><span>Last GPS</span><strong id="lastUpdate">{% if overview.latest_position %}{{ overview.latest_position.recorded_at }}{% else %}No live update yet{% endif %}</strong></div>
+              <div><span>Current Origin</span><strong id="currentCoords">{{ overview.current_stop }}</strong></div>
+              <div><span>Total Boarded Today</span><strong id="todayBoarded">{{ overview.today_summary.boarded }}</strong></div>
+              <div><span>Transactions Today</span><strong id="todayTransactions">{{ overview.today_summary.transactions }}</strong></div>
+            </div>
+          </section>
+
+          <section class="summary-card compact-card">
+            <h3>Destination Manifest</h3>
+            <div class="manifest-list" id="destinationManifestList">
+            {% if overview.destination_manifest %}
+              {% for item in overview.destination_manifest %}
+              <article>
+                <strong>{{ item.name }}</strong>
+                <span>{{ item.count }} onboard</span>
+              </article>
+              {% endfor %}
+            {% else %}
+            <p class="muted">No saved passengers are pending for the downstream stops yet.</p>
+            {% endif %}
+            </div>
+          </section>
+
+          <section class="summary-card compact-card">
+            <h3>Recent Tickets</h3>
+            <div class="record-list" id="recentTicketList">
+            {% if overview.recent_transactions %}
+              {% for row in overview.recent_transactions %}
+              <article>
+                <strong>{{ row.origin_stop or row.stop_name }} to {{ row.destination_stop or 'Open destination' }}</strong>
+                <span>{{ row.recorded_at }}</span>
+                <p>{{ row.passenger_type|title }} passenger · PHP {{ '%.0f'|format(row.fare_amount or 0) }}</p>
+              </article>
+              {% endfor %}
+            {% else %}
+            <p class="muted">No saved tickets yet.</p>
+            {% endif %}
+            </div>
+          </section>
+        </aside>
+      </div>
+    </section>
+    {% endif %}
+
+    <div class="conductor-footer-actions">
+      <a href="{{ url_for('logout') }}" class="logout-button" data-confirm="Are you sure you want to log out?">Logout</a>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  {% if overview.active_trip %}
+  <script type="application/json" id="conductorTicketPrintContext">
+    {
+      "operator": "GAJODA TSC",
+      "plateNumber": {{ overview.active_trip.plate_number|tojson }},
+      "busNumber": {{ overview.active_trip.plate_number|tojson }},
+      "routeName": {{ overview.active_trip.route_name|tojson }},
+      "routeStart": {{ overview.active_trip.start_point|tojson }},
+      "routeEnd": {{ overview.active_trip.end_point|tojson }}
+    }
+  </script>
+  <script src="{{ url_for('static', filename='js/conductor.js') }}?v=theme-icon-1"></script>
+  {% endif %}
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Track Minibus | Gajoda Transportation Services</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=tracker-theme-bottom-left-1">
+</head>
+<body data-live-bus-endpoint="{{ url_for('api_live_buses') }}" data-public-commuter-endpoint="{{ url_for('api_public_commuter') }}">
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+  <div class="landing-shell">
+    <header class="landing-topbar">
+      <div class="topbar-left">
+        <button class="menu-toggle" id="menuToggle" aria-label="Open menu">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <div class="brand-lockup compact">
+          <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+          <div>
+            <p class="brand-name">Gajoda Transportation Services</p>
+            <p class="brand-sub">Live Minibus Tracker</p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="landing-hero commuter-focus" id="tracker-top">
+      <div class="location-card">
+        <span class="location-label">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5c0 4.9 6.5 12.5 6.5 12.5S18.5 13.9 18.5 9A6.5 6.5 0 0 0 12 2.5m0 9.2A2.7 2.7 0 1 1 12 6.3a2.7 2.7 0 0 1 0 5.4"/></svg>
+          Your location
+        </span>
+        <strong id="userLocationText">Detecting your location...</strong>
+        <p class="hero-lead">Track active minibuses, compare crowd levels, and identify the nearest available trip before you ride.</p>
+        <div class="hero-stats">
+          <article>
+            <span class="stat-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h9A2.5 2.5 0 0 1 18 7.5V10h1.2a1.8 1.8 0 0 1 1.6 1l1.1 2.2c.1.3.1.5.1.8v2.5h-2.5a2.5 2.5 0 0 1-5 0h-5a2.5 2.5 0 0 1-5 0H3V9a1.5 1.5 0 0 1 1-1.4zM7 17.8a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6m10 0a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6"/></svg></span>
+            <strong id="activeBusCount">{{ active_bus_count }}</strong>
+            <span>Active buses</span>
+          </article>
+          <article>
+            <span class="stat-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5h3v14zm6 0V9h3v10zm6 0V3h3v16z"/></svg></span>
+            <strong id="avgCrowd">{{ avg_crowd }}</strong>
+            <span>Average load (%)</span>
+          </article>
+          <article>
+            <span class="stat-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 2.8 20h18.4zm1 14h-2v2h2zm0-7h-2v5h2z"/></svg></span>
+            <strong id="highCrowdCount">{{ high_count }}</strong>
+            <span>High crowd trips</span>
+          </article>
+        </div>
+        <div class="crowd-levels" id="crowdLevels" aria-label="Live crowd breakdown">
+          <div><span class="dot low"></span>Low {{ low_count }}</div>
+          <div><span class="dot medium"></span>Medium {{ medium_count }}</div>
+          <div><span class="dot high"></span>High {{ high_count }}</div>
+        </div>
+      </div>
+    </section>
+
+    {% if service_alerts %}
+    <section class="planner-panel-wrap" id="service-alerts">
+      <article class="planner-panel">
+        <div class="panel-head">
+          <div>
+            <h2><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 2.8 20h18.4zm1 14h-2v2h2zm0-7h-2v5h2z"/></svg>Service Alerts</h2>
+            <span>Current advisories affecting routes, stops, and crowd conditions.</span>
+          </div>
+        </div>
+        <div class="stop-directory-list">
+          {% for alert in service_alerts %}
+          <article class="stop-card">
+            <strong>{{ alert.title }}</strong>
+            <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} · {{ alert.stop_name }}{% endif %}</span>
+            <span>Visible until {{ alert.expires_at or 'today' }}</span>
+            <p>{{ alert.message }}</p>
+          </article>
+          {% endfor %}
+        </div>
+      </article>
+    </section>
+    {% endif %}
+
+    <section class="planner-panel-wrap" id="route-planner">
+      <article class="planner-panel planner-panel-large">
+        <div class="planner-shell">
+          <div class="planner-main">
+            <div class="panel-head planner-head">
+              <div>
+                <h2><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v13H7.5L5 20.5zm3 4v2h8V8zm0 4v2h6v-2z"/></svg>Commuter Route Planner</h2>
+                <span>Pick where you are and where you want to go. The planner will show the direct corridor trip, minimum fare, stop sequence, and live next-bus hints when available.</span>
+              </div>
+            </div>
+            <div class="planner-form planner-form-large">
+              <label class="planner-field planner-field-origin">
+                <span>Your origin</span>
+                <div class="planner-control">
+                  <select id="plannerOrigin">
+                    <option value="">Select origin</option>
+                  </select>
+                  <button type="button" class="ghost-action" id="useCurrentLocationBtn">
+                    <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2h2v3.1A7 7 0 0 1 18.9 11H22v2h-3.1A7 7 0 0 1 13 18.9V22h-2v-3.1A7 7 0 0 1 5.1 13H2v-2h3.1A7 7 0 0 1 11 5.1zm1 14.8A4.8 4.8 0 1 0 12 7.2a4.8 4.8 0 0 0 0 9.6"/></svg>
+                    Use Current Location
+                  </button>
+                </div>
+                <small>Choose your boarding stop manually, or use your current location to match the nearest published Gajoda stop.</small>
+              </label>
+              <label class="planner-field planner-field-destination">
+                <span>Choose destination</span>
+                <div class="planner-control planner-control-single">
+                  <select id="plannerDestination">
+                    <option value="">Select destination</option>
+                  </select>
+                </div>
+                <small id="plannerDestinationHint">Choose the city stop, terminal, or roadside pickup point you want to reach.</small>
+              </label>
+            </div>
+            <div id="plannerResults" class="planner-results planner-results-large"></div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="landing-main map-first">
+      <div class="map-panel priority-map" id="live-map">
+        <div class="panel-head">
+          <div>
+            <h2><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-6-2-6 2v16l6-2 6 2 6-2V3zm-1 13.6-4-1.3V5.4l4 1.3zm2-11.9 3-1v11.8l-3 1zM5 6.5l3-1v11.8l-3 1z"/></svg>Live Map</h2>
+            <span>Nearest bus and crowd status around your position</span>
+          </div>
+          <button class="ghost-action" id="locateMeBtn">
+            <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2h2v3.1A7 7 0 0 1 18.9 11H22v2h-3.1A7 7 0 0 1 13 18.9V22h-2v-3.1A7 7 0 0 1 5.1 13H2v-2h3.1A7 7 0 0 1 11 5.1zm1 14.8A4.8 4.8 0 1 0 12 7.2a4.8 4.8 0 0 0 0 9.6"/></svg>
+            Locate Me
+          </button>
+        </div>
+        <div id="map"></div>
+      </div>
+
+      <aside class="list-panel" id="available-buses">
+        <div class="panel-head">
+          <div>
+            <h2><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h9A2.5 2.5 0 0 1 18 7.5V10h1.2a1.8 1.8 0 0 1 1.6 1l1.1 2.2c.1.3.1.5.1.8v2.5h-2.5a2.5 2.5 0 0 1-5 0h-5a2.5 2.5 0 0 1-5 0H3V9a1.5 1.5 0 0 1 1-1.4zM7 17.8a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6m10 0a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6"/></svg>Available Buses</h2>
+            <span>Sort by nearest bus or capacity</span>
+          </div>
+          <select id="sortSelect" class="sort-select">
+            <option value="nearest">Nearest</option>
+            <option value="capacity_low">Lowest Capacity Load</option>
+            <option value="capacity_high">Highest Capacity Load</option>
+          </select>
+        </div>
+        <div id="busList" class="bus-list"></div>
+      </aside>
+    </section>
+
+    <footer class="landing-footer home-footer">
+      <div class="footer-brand">
+        <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="" aria-hidden="true">
+        <strong>Gajoda Transportation Services</strong>
+        <p>Live route visibility for commuters using the Gajoda minibus service.</p>
+      </div>
+      <div class="footer-contact">
+        <strong><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5zm2.3-.5 5.7 4.6L17.7 5zM6 7.1v11.4c0 .3.2.5.5.5h11c.3 0 .5-.2.5-.5V7.1l-6 4.8z"/></svg> Contact</strong>
+        <p>Phone and office schedule will be added soon.</p>
+        <a href="https://www.facebook.com/GAJODATSC" target="_blank" rel="noopener">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 8.5V6.8c0-.8.5-1 1-1h1.7V3h-2.5C11.6 3 10 4.6 10 7.2v1.3H8v3h2V21h3.5v-9.5h2.6l.4-3z"/></svg>
+          Facebook: GAJODA TSC
+        </a>
+      </div>
+      <div class="footer-links">
+        <strong><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg> Links</strong>
+        <a href="{{ url_for('landing') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2 12 4l9 7.2v8.3a.5.5 0 0 1-.5.5H15v-6H9v6H3.5a.5.5 0 0 1-.5-.5z"/></svg>Home</a>
+        <a href="{{ url_for('tracker') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5c0 4.9 6.5 12.5 6.5 12.5S18.5 13.9 18.5 9A6.5 6.5 0 0 0 12 2.5m0 9.2A2.7 2.7 0 1 1 12 6.3a2.7 2.7 0 0 1 0 5.4"/></svg>Track Minibus</a>
+        <a href="{{ url_for('login') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a5 5 0 0 0-5 5v3H5.5A1.5 1.5 0 0 0 4 11.5v8A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5v-8a1.5 1.5 0 0 0-1.5-1.5H17V7a5 5 0 0 0-5-5m-3 8V7a3 3 0 0 1 6 0v3z"/></svg>Staff Login</a>
+      </div>
+    </footer>
+  </div>
+
+  <div class="menu-overlay" id="menuOverlay">
+    <div class="menu-panel">
+      <div class="menu-head">
+        <h3>Menu</h3>
+        <button type="button" class="theme-toggle menu-theme-toggle legacy-menu-theme-row" aria-label="Toggle dark mode"></button>
+        <button class="menu-close" id="menuClose" aria-label="Close menu">×</button>
+      </div>
+      <nav class="menu-links">
+        <a href="{{ url_for('landing') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2 12 4l9 7.2v8.3a.5.5 0 0 1-.5.5H15v-6H9v6H3.5a.5.5 0 0 1-.5-.5z"/></svg>Home</a>
+        <a href="{{ url_for('tracker') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5c0 4.9 6.5 12.5 6.5 12.5S18.5 13.9 18.5 9A6.5 6.5 0 0 0 12 2.5m0 9.2A2.7 2.7 0 1 1 12 6.3a2.7 2.7 0 0 1 0 5.4"/></svg>Track Minibus</a>
+        <a href="{{ url_for('login') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a5 5 0 0 0-5 5v3H5.5A1.5 1.5 0 0 0 4 11.5v8A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5v-8a1.5 1.5 0 0 0-1.5-1.5H17V7a5 5 0 0 0-5-5m-3 8V7a3 3 0 0 1 6 0v3z"/></svg>Staff Login</a>
+        <button type="button" class="menu-theme-row legacy-menu-theme-row" aria-label="Toggle dark mode">
+          <span class="theme-menu-icon theme-toggle"></span>
+          <span>Theme</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script type="application/json" id="publicLiveBusesData">{{ buses_json|safe }}</script>
+  <script type="application/json" id="publicCommuterData">{{ commuter_data_json|safe }}</script>
+  <script src="{{ url_for('static', filename='js/public-tracker-config.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=polling-socket-1"></script>
+</body>
+</html>

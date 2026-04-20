@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>58mm Receipt Preview</title>
+  <style>
+    @page { size: 58mm auto; margin: 0; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #f2f2f2;
+      color: #111;
+      font-family: "Courier New", Consolas, monospace;
+    }
+    .preview-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      align-items: center;
+      padding: 12px;
+      font-family: Arial, sans-serif;
+    }
+    .preview-toolbar span {
+      width: 100%;
+      color: #555;
+      font-size: 12px;
+      text-align: center;
+    }
+    .preview-toolbar button {
+      border: 0;
+      border-radius: 8px;
+      padding: 9px 12px;
+      background: #d60000;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .ticket-paper {
+      width: 58mm;
+      min-height: 92mm;
+      margin: 0 auto 18px;
+      padding: 5mm 4mm 8mm;
+      background: #fff;
+      box-shadow: 0 18px 38px rgba(0, 0, 0, 0.18);
+      overflow: hidden;
+    }
+    .receipt-rule {
+      margin: 2mm 0;
+      border: 0;
+      border-top: 1px dashed #111;
+    }
+    .ticket-title {
+      text-align: center;
+      font-weight: 700;
+      letter-spacing: 0;
+      margin-bottom: 1mm;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .ticket-subtitle {
+      text-align: center;
+      font-size: 8px;
+      letter-spacing: 0;
+      margin: 0;
+    }
+    .ticket-row {
+      display: grid;
+      grid-template-columns: 20mm 1fr;
+      gap: 2mm;
+      font-size: 9px;
+      line-height: 1.25;
+      margin: 1.2mm 0;
+      word-break: break-word;
+    }
+    .ticket-label {
+      color: #111;
+      font-weight: 700;
+    }
+    .route-line {
+      margin: 2mm 0 1mm;
+      font-size: 9px;
+      line-height: 1.15;
+      text-align: left;
+      word-break: break-word;
+    }
+    .route-line strong { display: block; }
+    .fare-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 3mm;
+      margin-top: 3mm;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .fare-total strong {
+      display: inline-block;
+      font-size: 20px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+    .mock-note {
+      margin: 5mm 0 0;
+      text-align: center;
+      font-size: 6px;
+      color: #111;
+    }
+    .paper-feed {
+      height: 8mm;
+    }
+    @media print {
+      body { background: #fff; }
+      .preview-toolbar { display: none; }
+      .ticket-paper {
+        width: 58mm;
+        min-height: 0;
+        margin: 0;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-toolbar">
+    <span>Standalone MY-58PT-III 58mm thermal receipt preview.</span>
+    <button type="button" onclick="window.print()">Print Test</button>
+  </div>
+  <main class="ticket-paper">
+    <div class="ticket-title">GAJODA TSC</div>
+    <p class="ticket-subtitle">58MM THERMAL RECEIPT</p>
+    <hr class="receipt-rule">
+    <div class="ticket-row"><span class="ticket-label">Plate No:</span><span>ABC 1234</span></div>
+    <div class="ticket-row"><span class="ticket-label">Bus #:</span><span>1234</span></div>
+    <div class="ticket-row"><span class="ticket-label">Ticket ID:</span><span>04218</span></div>
+    <div class="ticket-row"><span class="ticket-label">Date:</span><span>04/18/2026</span></div>
+    <div class="ticket-row"><span class="ticket-label">Time:</span><span>10:27 AM</span></div>
+    <hr class="receipt-rule">
+    <div class="route-line">
+      <strong>Route: Gajoda Terminal - Cabanatuan</strong>
+    </div>
+    <div class="ticket-row"><span class="ticket-label">Origin:</span><span>Gajoda Terminal</span></div>
+    <div class="ticket-row"><span class="ticket-label">Destination:</span><span>Cabanatuan Central Terminal</span></div>
+    <div class="ticket-row"><span class="ticket-label">Fare Type:</span><span>Regular</span></div>
+    <hr class="receipt-rule">
+    <div class="fare-total"><span>TOTAL PHP</span><strong>90.00</strong></div>
+    <p class="mock-note">PAPER SIZE TEST RECEIPT</p>
+    <div class="paper-feed"></div>
+  </main>
+</body>
+</html>

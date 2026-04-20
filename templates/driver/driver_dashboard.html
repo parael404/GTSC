@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Driver Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body data-start-trip-url="{{ url_for('start_trip') }}" data-end-trip-url="{{ url_for('end_trip') }}" data-driver-location-url="{{ url_for('driver_location') }}" data-csrf-token="{{ csrf_token() }}">
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+  <div class="driver-shell">
+    <header class="driver-topbar">
+      <div>
+        <div class="brand-lockup compact">
+          <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+          <div>
+            <p class="brand-name">Gajoda Transportation Services</p>
+            <p class="brand-sub">Driver Operations</p>
+          </div>
+        </div>
+        <p class="eyebrow">Driver Dashboard</p>
+        <h1>{{ overview.driver.full_name }}</h1>
+      </div>
+    </header>
+
+    <section class="driver-grid">
+      <article class="setup-panel">
+        <div class="panel-head">
+          <h2>Trip Control</h2>
+          <span>Start service, keep GPS running, and end the trip cleanly</span>
+        </div>
+        <p class="panel-copy">This page is intentionally limited to driver essentials. The driver only selects the unit, starts the trip, allows GPS transmission, and ends service.</p>
+
+        {% if overview.active_trip %}
+        <div class="trip-status live">
+          <strong>{{ overview.active_trip.plate_number }}</strong>
+          <span>{{ overview.active_trip.route_name }}</span>
+          <small>Started at <span data-local-time="{{ overview.active_trip.started_at }}">{{ overview.active_trip.started_at }}</span></small>
+        </div>
+        <div class="status-strip">
+          <span class="status-chip active">Trip Active</span>
+          <span id="trackingStatus" class="status-chip neutral">GPS is currently off</span>
+        </div>
+        <div class="button-row">
+          <button id="trackingBtn" class="primary tracking" type="button" disabled>GPS Required During Trip</button>
+          <button id="endTripBtn" class="primary danger">End Trip</button>
+        </div>
+        {% else %}
+        <form id="startTripForm" class="trip-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label>
+            <span>Select Bus</span>
+            <select name="bus_id" required>
+              <option value="">Choose an online bus</option>
+              {% for bus in overview.available_buses %}
+              <option value="{{ bus.id }}">{{ bus.plate_number }} - {{ bus.capacity }} seats</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>Select Route</span>
+            <select name="route_id" required>
+              <option value="">Choose route</option>
+              {% for route in overview.routes %}
+              <option value="{{ route.id }}">{{ route.route_name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div class="status-strip">
+            <span class="status-chip neutral">No Active Trip</span>
+            <span class="status-chip neutral">GPS starts after trip activation</span>
+          </div>
+          <div class="button-row">
+            <button id="startTripBtn" type="submit" class="primary">Start Trip</button>
+            <button id="endTripBtn" type="button" class="primary danger" disabled>End Trip</button>
+          </div>
+        </form>
+        {% endif %}
+
+        <div class="operation-grid">
+          <article class="metric-card">
+            <span>Assigned Flow</span>
+            <strong>Driver</strong>
+            <small>Select bus, start trip, keep GPS running, and end trip.</small>
+          </article>
+          <article class="metric-card">
+            <span>GPS Status</span>
+            <strong id="gpsState">{{ 'Ready to transmit' if overview.active_trip else 'Waiting for trip start' }}</strong>
+            <small id="gpsDetail">{% if overview.trip_metrics.last_gps_at %}Last GPS log: <span data-local-time="{{ overview.trip_metrics.last_gps_at }}">{{ overview.trip_metrics.last_gps_at }}</span>{% else %}No GPS update has been sent yet.{% endif %}</small>
+          </article>
+          <article class="metric-card">
+            <span>Trip Duration</span>
+            <strong id="tripDuration">{{ overview.trip_metrics.trip_duration }}</strong>
+            <small>Elapsed time for the active trip.</small>
+          </article>
+          <article class="metric-card">
+            <span>Current Stop</span>
+            <strong id="currentStopValue">{{ overview.trip_metrics.next_stop }}</strong>
+            <small id="currentStopDetail">Nearest corridor stop based on the latest trip GPS update.</small>
+          </article>
+        </div>
+      </article>
+    </section>
+
+    <div class="driver-footer-actions">
+      <a href="{{ url_for('logout') }}" class="logout-button" data-confirm="Are you sure you want to log out?">Logout</a>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script type="application/json" id="driverActiveTripData">{{ overview.active_trip|tojson }}</script>
+  <script src="{{ url_for('static', filename='js/driver-dashboard.js') }}"></script>
+</body>
+</html>
