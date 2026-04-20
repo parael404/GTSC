@@ -33,7 +33,77 @@ from connection import bootstrap_db
 
 bootstrap_db()
 
+def seed_initial_accounts(conn):
+    admin_username = os.getenv("INITIAL_ADMIN_USERNAME", "").strip()
+    admin_email = os.getenv("INITIAL_ADMIN_EMAIL", "").strip()
+    admin_password = os.getenv("INITIAL_ADMIN_PASSWORD", "").strip()
+
+    super_admin_username = os.getenv("INITIAL_SUPER_ADMIN_USERNAME", "").strip()
+    super_admin_email = os.getenv("INITIAL_SUPER_ADMIN_EMAIL", "").strip()
+    super_admin_password = os.getenv("INITIAL_SUPER_ADMIN_PASSWORD", "").strip()
+
+    if admin_username and admin_email and admin_password:
+        existing_admin = conn.execute(
+            "SELECT id FROM users WHERE username=%s OR email=%s",
+            (admin_username, admin_email)
+        ).fetchone()
+
+        admin_hash = generate_password_hash(admin_password)
+
+        if existing_admin:
+            conn.execute(
+                """
+                UPDATE users
+                SET username=%s, email=%s, password=%s, role=%s
+                WHERE id=%s
+                """,
+                (admin_username, admin_email, admin_hash, "admin", existing_admin["id"])
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO users (username, email, password, role)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (admin_username, admin_email, admin_hash, "admin")
+            )
+
+    if super_admin_username and super_admin_email and super_admin_password:
+        existing_super_admin = conn.execute(
+            "SELECT id FROM users WHERE username=%s OR email=%s",
+            (super_admin_username, super_admin_email)
+        ).fetchone()
+
+        super_admin_hash = generate_password_hash(super_admin_password)
+
+        if existing_super_admin:
+            conn.execute(
+                """
+                UPDATE users
+                SET username=%s, email=%s, password=%s, role=%s
+                WHERE id=%s
+                """,
+                (super_admin_username, super_admin_email, super_admin_hash, "super_admin", existing_super_admin["id"])
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO users (username, email, password, role)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (super_admin_username, super_admin_email, super_admin_hash, "super_admin")
+            )
+
+    conn.commit()
+
 app = Flask(__name__)
+from connection import bootstrap_db
+
+bootstrap_db()
+
+conn = get_db()
+seed_initial_accounts(conn)
+conn.close()
 IS_PRODUCTION = os.environ.get("FLASK_ENV") == "production" or os.environ.get("APP_ENV") == "production"
 SECRET_KEY = os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
 if IS_PRODUCTION and not SECRET_KEY:
