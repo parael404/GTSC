@@ -3834,43 +3834,90 @@ def sync_default_stops(conn):
             )
 
 
-# Seed default users, buses, cameras, routes, stops, and service alerts.
+# Return whether an environment flag is enabled.
+def env_flag(name, default=False):
+    """Return whether an environment flag is enabled."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+# Seed the first production admin from deployment environment variables.
+def seed_initial_admin(conn):
+    """Seed the first production admin from deployment environment variables."""
+    username = os.environ.get("INITIAL_ADMIN_USERNAME", "").strip()
+    email = os.environ.get("INITIAL_ADMIN_EMAIL", "").strip()
+    password = os.environ.get("INITIAL_ADMIN_PASSWORD", "")
+    full_name = os.environ.get("INITIAL_ADMIN_FULL_NAME", "System Administrator").strip()
+    role = os.environ.get("INITIAL_ADMIN_ROLE", "super_admin").strip()
+
+    if role not in {"super_admin", "admin"}:
+        role = "super_admin"
+
+    existing_admin = conn.execute(
+        "SELECT id FROM users WHERE role IN ('super_admin', 'admin') LIMIT 1",
+    ).fetchone()
+    if existing_admin:
+        return
+
+    if not username or not email or not password:
+        app.logger.warning(
+            "No admin user exists. Set INITIAL_ADMIN_USERNAME, INITIAL_ADMIN_EMAIL, "
+            "and INITIAL_ADMIN_PASSWORD in Railway to create the first admin."
+        )
+        return
+
+    conn.execute(
+        """
+        INSERT INTO users (username, email, password, role, full_name, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (username, email, generate_password_hash(password), role, full_name, to_db_time(now())),
+    )
+
+
+# Seed baseline routes, buses, cameras, and service alerts.
 def seed_demo_data():
-    """Seed default users, buses, cameras, routes, stops, and service alerts."""
+    """Seed baseline routes, buses, cameras, and service alerts."""
     conn = get_db()
     sync_default_routes(conn)
     sync_default_stops(conn)
     refresh_route_stop_cache(conn)
-    conn.execute(
-        """
-        UPDATE users
-        SET full_name = ?
-        WHERE username = 'admin'
-        """,
-        ("Marites Mariano",),
-    )
-    users = [
-        ("superadmin", "superadmin@example.com", "superadmin123", "super_admin", "System Super Admin"),
-        ("admin", "admin@example.com", "admin123", "admin", "Marites Mariano"),
-        ("driver1", "driver1@example.com", "driver123", "driver", "Juan Dela Cruz"),
-        ("driver2", "driver2@example.com", "driver123", "driver", "Rico Mendoza"),
-        ("conductor1", "conductor1@example.com", "conduct123", "conductor", "Ana Ramos"),
-    ]
-    for username, email, password, role, full_name in users:
-        existing_user = conn.execute(
-            "SELECT id, password FROM users WHERE username = ?",
-            (username,),
-        ).fetchone()
-        if existing_user:
-            ensure_password_hashed(conn, existing_user["id"], existing_user["password"])
-        else:
-            conn.execute(
-                """
-                INSERT INTO users (username, email, password, role, full_name, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (username, email, generate_password_hash(password), role, full_name, to_db_time(now())),
-            )
+
+    if not IS_PRODUCTION or env_flag("CODEXMBS_SEED_DEMO_USERS"):
+        conn.execute(
+            """
+            UPDATE users
+            SET full_name = ?
+            WHERE username = 'admin'
+            """,
+            ("Marites Mariano",),
+        )
+        users = [
+            ("superadmin", "superadmin@example.com", "superadmin123", "super_admin", "System Super Admin"),
+            ("admin", "admin@example.com", "admin123", "admin", "Marites Mariano"),
+            ("driver1", "driver1@example.com", "driver123", "driver", "Juan Dela Cruz"),
+            ("driver2", "driver2@example.com", "driver123", "driver", "Rico Mendoza"),
+            ("conductor1", "conductor1@example.com", "conduct123", "conductor", "Ana Ramos"),
+        ]
+        for username, email, password, role, full_name in users:
+            existing_user = conn.execute(
+                "SELECT id, password FROM users WHERE username = ?",
+                (username,),
+            ).fetchone()
+            if existing_user:
+                ensure_password_hashed(conn, existing_user["id"], existing_user["password"])
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO users (username, email, password, role, full_name, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (username, email, generate_password_hash(password), role, full_name, to_db_time(now())),
+                )
+    else:
+        seed_initial_admin(conn)
 
     buses = [
         ("MB-01", DEFAULT_BUS_CAPACITY, "offline", "#0f766e", "Primary unit"),

@@ -72,6 +72,7 @@ class DBConnection:
 
 
 def bootstrap_db():
+    database_name = _safe_database_name(DB_CONFIG["database"])
     server_conn = mysql.connector.connect(
         host=DB_CONFIG["host"],
         user=DB_CONFIG["user"],
@@ -79,11 +80,15 @@ def bootstrap_db():
         port=DB_CONFIG["port"],
     )
     server_cursor = server_conn.cursor()
-    database_name = _safe_database_name(DB_CONFIG["database"])
-    server_cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database_name}`")
-    server_conn.commit()
-    server_cursor.close()
-    server_conn.close()
+    try:
+        server_cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database_name}`")
+        server_conn.commit()
+    except Error as exc:
+        if getattr(exc, "errno", None) != 1044:
+            raise
+    finally:
+        server_cursor.close()
+        server_conn.close()
 
     db_conn = mysql.connector.connect(**DB_CONFIG)
     db_cursor = db_conn.cursor()
