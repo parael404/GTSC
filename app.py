@@ -3418,12 +3418,13 @@ def build_admin_overview(conn, report_start_date=None, report_end_date=None):
         dict(row)
         for row in conn.execute(
             """
-            SELECT CONCAT(LPAD(HOUR(recorded_at), 2, '0'), ':00') AS hour_label,
-                   COALESCE(SUM(CASE WHEN event_type = 'board' THEN quantity ELSE 0 END), 0) AS total
+            SELECT
+                CONCAT(LPAD(CAST(HOUR(recorded_at) AS CHAR), 2, '0'), ':00') AS hour_label,
+                COALESCE(SUM(CASE WHEN event_type = 'board' THEN quantity ELSE 0 END), 0) AS total
             FROM trip_transactions
             WHERE DATE(recorded_at) = ?
-            GROUP BY HOUR(recorded_at)
-            ORDER BY HOUR(recorded_at)
+            GROUP BY hour_label
+            ORDER BY hour_label
             """,
             (today,),
         ).fetchall()
