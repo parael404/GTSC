@@ -18,11 +18,11 @@ def _env_first(*names, default=""):
 
 
 DB_CONFIG = {
-    "host": _env_first("DB_HOST", "MYSQLHOST", default="localhost"),
-    "user": _env_first("DB_USER", "MYSQLUSER", default="root"),
-    "password": _env_first("DB_PASSWORD", "MYSQLPASSWORD", default=""),
-    "port": int(_env_first("DB_PORT", "MYSQLPORT", default="3307")),
-    "database": _env_first("DB_NAME", "MYSQLDATABASE", default="codexmbs_db"),
+    "host": _env_first("MYSQLHOST", "DB_HOST", default="localhost"),
+    "user": _env_first("MYSQLUSER", "DB_USER", default="root"),
+    "password": _env_first("MYSQLPASSWORD", "DB_PASSWORD", default=""),
+    "port": int(_env_first("MYSQLPORT", "DB_PORT", default="3306")),
+    "database": _env_first("MYSQLDATABASE", "MYSQL_DATABASE", "DB_NAME", default="codexmbs_db"),
 }
 
 
