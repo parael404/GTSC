@@ -29,7 +29,6 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from connection import bootstrap_db, get_db
-from connection import bootstrap_db
 
 bootstrap_db()
 
@@ -49,23 +48,24 @@ def seed_initial_accounts(conn):
         ).fetchone()
 
         admin_hash = generate_password_hash(admin_password)
+        admin_full_name = "Initial Admin"
 
         if existing_admin:
             conn.execute(
                 """
                 UPDATE users
-                SET username=%s, email=%s, password=%s, role=%s
+                SET username=%s, email=%s, password=%s, role=%s, full_name=%s
                 WHERE id=%s
                 """,
-                (admin_username, admin_email, admin_hash, "admin", existing_admin["id"])
+                (admin_username, admin_email, admin_hash, "admin", admin_full_name, existing_admin["id"])
             )
         else:
             conn.execute(
                 """
-                INSERT INTO users (username, email, password, role)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO users (username, email, password, role, full_name)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (admin_username, admin_email, admin_hash, "admin")
+                (admin_username, admin_email, admin_hash, "admin", admin_full_name)
             )
 
     if super_admin_username and super_admin_email and super_admin_password:
@@ -75,33 +75,35 @@ def seed_initial_accounts(conn):
         ).fetchone()
 
         super_admin_hash = generate_password_hash(super_admin_password)
+        super_admin_full_name = "Initial Super Admin"
 
         if existing_super_admin:
             conn.execute(
                 """
                 UPDATE users
-                SET username=%s, email=%s, password=%s, role=%s
+                SET username=%s, email=%s, password=%s, role=%s, full_name=%s
                 WHERE id=%s
                 """,
-                (super_admin_username, super_admin_email, super_admin_hash, "super_admin", existing_super_admin["id"])
+                (super_admin_username, super_admin_email, super_admin_hash, "super_admin", super_admin_full_name, existing_super_admin["id"])
             )
         else:
             conn.execute(
                 """
-                INSERT INTO users (username, email, password, role)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO users (username, email, password, role, full_name)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (super_admin_username, super_admin_email, super_admin_hash, "super_admin")
+                (super_admin_username, super_admin_email, super_admin_hash, "super_admin", super_admin_full_name)
             )
 
     conn.commit()
 
-app = Flask(__name__)
-from connection import bootstrap_db
 
-bootstrap_db()
+app = Flask(__name__)
 
 conn = get_db()
+seed_initial_accounts(conn)
+conn.close()
+
 seed_initial_accounts(conn)
 conn.close()
 IS_PRODUCTION = os.environ.get("FLASK_ENV") == "production" or os.environ.get("APP_ENV") == "production"
