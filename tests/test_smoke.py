@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import app as app_module
+from connection import DBConnection
 
 
 app = app_module.app
@@ -45,6 +46,14 @@ class FakeConnection:
 
     def close(self):
         self.closed = True
+
+
+class FakeRawConnection:
+    def __init__(self):
+        self.rolled_back = False
+
+    def rollback(self):
+        self.rolled_back = True
 
 
 class SmokeTests(unittest.TestCase):
@@ -98,6 +107,16 @@ class SmokeTests(unittest.TestCase):
                 for query, params in fake_conn.queries
             )
         )
+
+    def test_db_connection_exposes_rollback(self):
+        raw_conn = FakeRawConnection()
+        DBConnection(raw_conn).rollback()
+        self.assertTrue(raw_conn.rolled_back)
+
+    def test_far_gps_point_does_not_snap_to_neeco_stop(self):
+        trip = {"route_name": app_module.FORWARD_ROUTE_NAME, "end_point": "Cabanatuan Terminal"}
+        label = app_module.derive_trip_location_label(trip, 15.3755, 120.9775)
+        self.assertNotEqual(label, "NEECO II - Area 2")
 
 
 if __name__ == "__main__":

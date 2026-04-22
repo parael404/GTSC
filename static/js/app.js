@@ -8,6 +8,8 @@ let shouldFocusUserLocation = false;
 const LIVE_TRACKING_REFRESH_MS = 3000;
 const COMMUTER_DATA_REFRESH_MS = 10000;
 const FALLBACK_BUS_SPEED_KPH = 24;
+const PLANNER_STOP_SNAP_KM = 0.45;
+const MAX_USER_LOCATION_ACCURACY_METERS = 150;
 
 const mapElement = document.getElementById('map');
 const map = mapElement ? L.map('map').setView([15.37, 120.94], 10) : null;
@@ -452,16 +454,42 @@ function detectUserLocation() {
 
   navigator.geolocation.getCurrentPosition(
     async (position) => {
+      const accuracy = Number(position.coords.accuracy);
       userLocation = {
         lat: position.coords.latitude,
-        lng: position.coords.longitude
+        lng: position.coords.longitude,
+        accuracy: Number.isFinite(accuracy) ? accuracy : null
       };
+      if (Number.isFinite(accuracy) && accuracy > MAX_USER_LOCATION_ACCURACY_METERS) {
+        if (applyCurrentLocationToPlanner) {
+          const nearestStop = applyNearestStopToPlanner({ allowDistant: true });
+          if (nearestStop) {
+            updateUserLocationText(`Using nearest stop: ${nearestStop.name} (${nearestStop.distanceKm.toFixed(1)} km away, low GPS accuracy ${Math.round(accuracy)} m)`);
+            applyCurrentLocationToPlanner = false;
+            populateStopOptions();
+            renderPlanner();
+          } else {
+            updateUserLocationText(`Low GPS accuracy (${Math.round(accuracy)} m). Choose your origin stop manually.`);
+            applyCurrentLocationToPlanner = false;
+          }
+        } else {
+          updateUserLocationText(`Low GPS accuracy (${Math.round(accuracy)} m). Choose your origin stop manually.`);
+        }
+        renderMap();
+        renderBusList();
+        return;
+      }
       updateUserLocationText('Detecting your city...');
       const locationName = await resolveLocationName(userLocation.lat, userLocation.lng);
       updateUserLocationText(locationName || `${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`);
-      const nearestStop = findNearestStopForCurrentLocation();
-      if (applyCurrentLocationToPlanner && plannerOrigin && nearestStop) {
-        plannerOrigin.value = nearestStop.name;
+      const nearestStop = applyCurrentLocationToPlanner
+        ? applyNearestStopToPlanner({ allowDistant: true })
+        : findNearestStopForCurrentLocation();
+      if (applyCurrentLocationToPlanner && nearestStop) {
+        updateUserLocationText(`Using nearest stop: ${nearestStop.name} (${nearestStop.distanceKm.toFixed(1)} km away)`);
+        applyCurrentLocationToPlanner = false;
+      } else if (applyCurrentLocationToPlanner) {
+        updateUserLocationText('Could not match your location to a route stop. Choose your origin stop manually.');
         applyCurrentLocationToPlanner = false;
       }
       populateStopOptions();
@@ -499,7 +527,24 @@ function getStopDirectory() {
   return Array.isArray(commuterData.stopDirectory) ? commuterData.stopDirectory : [];
 }
 
-function findNearestStopForCurrentLocation() {
+function getChronologicalStopNames() {
+  const names = [];
+  const seen = new Set();
+  getRoutes().forEach((route) => {
+    (route.stops || []).forEach((stop) => {
+      const name = String(stop?.name || '').trim();
+      const key = stopNameKey(name);
+      if (!name || seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      names.push(name);
+    });
+  });
+  return names;
+}
+
+function findNearestStopForCurrentLocation(options = {}) {
   if (!userLocation) {
     return null;
   }
@@ -517,6 +562,27 @@ function findNearestStopForCurrentLocation() {
     }
   });
 
+  const maxDistance = options.allowDistant ? Number.POSITIVE_INFINITY : PLANNER_STOP_SNAP_KM;
+  if (!nearestStop || nearestDistance > maxDistance) {
+    return null;
+  }
+
+  return {
+    ...nearestStop,
+    distanceKm: nearestDistance
+  };
+}
+
+function applyNearestStopToPlanner(options = {}) {
+  if (!plannerOrigin) {
+    return null;
+  }
+  const nearestStop = findNearestStopForCurrentLocation(options);
+  if (!nearestStop) {
+    return null;
+  }
+  const matchedOrigin = getChronologicalStopNames().find((name) => stopNameKey(name) === stopNameKey(nearestStop.name));
+  plannerOrigin.value = matchedOrigin || nearestStop.name;
   return nearestStop;
 }
 
@@ -600,6 +666,26 @@ function estimateFareTable(distanceKmValue, minimumFare = 15, discountedFare = 1
   };
 }
 
+function findMatrixFareTable(route, originName, destinationName) {
+  const rows = Array.isArray(route.fareMatrix) ? route.fareMatrix : [];
+  const match = rows.find((row) => (
+    stopNameKey(row.originStop) === stopNameKey(originName) &&
+    stopNameKey(row.destinationStop) === stopNameKey(destinationName)
+  ));
+  if (!match) {
+    return null;
+  }
+
+  const regular = Math.round(Number(match.regular) || 0);
+  const discounted = Math.round(Number(match.discounted) || regular);
+  return {
+    regular,
+    student: discounted,
+    pwd: discounted,
+    senior: discounted
+  };
+}
+
 function hasSpecificLandmark(stop) {
   const landmark = String(stop?.landmark || '').trim();
   if (!landmark) {
@@ -664,6 +750,8 @@ function findJourneyOptions(originName, destinationName) {
       0
     );
     const estimatedDistanceKm = estimateSegmentDistance(route, originStop, destinationStop);
+    const fareTable = findMatrixFareTable(route, originName, destinationName) ||
+      estimateFareTable(estimatedDistanceKm, route.minimumFare, route.discountedFare);
     const liveBuses = getRouteLiveBuses(route.routeName)
       .map((bus) => ({
         ...bus,
@@ -680,7 +768,7 @@ function findJourneyOptions(originName, destinationName) {
       destinationStop,
       estimatedMinutes,
       estimatedDistanceKm,
-      fareTable: estimateFareTable(estimatedDistanceKm, route.minimumFare, route.discountedFare),
+      fareTable,
       liveBuses,
       nextBus: liveBuses[0] || null
     });
@@ -805,14 +893,15 @@ function renderRouteCards() {
 }
 
 function populateStopOptions() {
-  const stopNames = Array.isArray(commuterData.stopNames) ? commuterData.stopNames : [];
+  const stopNames = getChronologicalStopNames();
   const defaultRoute = getRoutes()[0];
 
   if (plannerOrigin && plannerOrigin.tagName === 'SELECT') {
     const currentOriginValue = plannerOrigin.value;
     plannerOrigin.innerHTML = `<option value="">Select origin</option>${stopNames.map((name) => `<option value="${name}">${name}</option>`).join('')}`;
-    if (currentOriginValue && stopNames.includes(currentOriginValue)) {
-      plannerOrigin.value = currentOriginValue;
+    const preservedOrigin = stopNames.find((name) => stopNameKey(name) === stopNameKey(currentOriginValue));
+    if (preservedOrigin) {
+      plannerOrigin.value = preservedOrigin;
     }
   }
 
@@ -823,7 +912,7 @@ function populateStopOptions() {
     const groupedOptions = getRoutes().map((route) => {
       const routeStops = (route.stops || [])
         .map((stop) => stop.name)
-        .filter((name) => destinationOptions.includes(name));
+        .filter((name) => destinationOptions.some((optionName) => stopNameKey(optionName) === stopNameKey(name)));
       if (!routeStops.length) {
         return '';
       }
@@ -893,7 +982,7 @@ function connectLiveTrackingSocket() {
   }
 
   const socket = io({
-    transports: ['polling'],
+    transports: ['websocket', 'polling'],
     reconnection: true
   });
 
@@ -935,11 +1024,13 @@ if (useCurrentLocationBtn && plannerOrigin) {
       detectUserLocation();
       return;
     }
-    const nearestStop = findNearestStopForCurrentLocation();
+    const nearestStop = applyNearestStopToPlanner({ allowDistant: true });
     if (nearestStop) {
-      plannerOrigin.value = nearestStop.name;
       populateStopOptions();
       renderPlanner();
+      updateUserLocationText(`Using nearest stop: ${nearestStop.name} (${nearestStop.distanceKm.toFixed(1)} km away)`);
+    } else {
+      updateUserLocationText('Could not match your location to a route stop. Choose your origin stop manually.');
     }
     applyCurrentLocationToPlanner = false;
   });

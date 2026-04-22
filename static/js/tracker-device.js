@@ -20,6 +20,7 @@
     const wakeLockValue = document.getElementById('wakeLockValue');
     const LOCATION_REFRESH_MS = 3000;
     const MIN_LOCATION_SEND_MS = 2500;
+    const MAX_GPS_ACCURACY_METERS = 150;
     const GEO_OPTIONS = {
       enableHighAccuracy: true,
       maximumAge: 1000,
@@ -36,7 +37,7 @@
         return null;
       }
       const normalized = String(value).trim().replace(' ', 'T');
-      const date = new Date(`${normalized}Z`);
+      const date = new Date(normalized);
       return Number.isNaN(date.getTime()) ? null : date;
     }
 
@@ -161,6 +162,11 @@
 
     async function handlePosition(position) {
       updateTelemetry(position);
+      const accuracy = Number(position.coords.accuracy);
+      if (Number.isFinite(accuracy) && accuracy > MAX_GPS_ACCURACY_METERS) {
+        setTrackingStatus(`GPS accuracy is low (${Math.round(accuracy)} m). Waiting for a better lock.`, true);
+        return;
+      }
 
       const now = Date.now();
       if (locationPushInFlight || now - lastLocationSentAt < MIN_LOCATION_SEND_MS) {

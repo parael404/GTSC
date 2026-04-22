@@ -167,7 +167,8 @@ PASSWORD_RESET_TOKEN_MINUTES = 30
 ADMIN_OPERATION_NOTIFICATION_TYPES = {"trip_started", "trip_ended", "high_crowd", "bus_full"}
 
 DEFAULT_BUS_CAPACITY = 30
-STOP_PASS_RADIUS_KM = 0.85
+STOP_PASS_RADIUS_KM = 0.45
+STOP_LABEL_SNAP_RADIUS_KM = 0.45
 AUTO_OFFBOARD_BOARDING_GRACE_SECONDS = 90
 CAMERA_STREAM_TYPES = {"hls", "mjpeg", "embed", "external", "webrtc", "rtsp_gateway"}
 CAMERA_STATUSES = {"online", "offline", "maintenance", "unconfigured"}
@@ -535,6 +536,19 @@ def parse_gps_coordinates(latitude, longitude):
     return lat, lng, None
 
 
+def parse_gps_accuracy(value):
+    """Return optional browser GPS accuracy in meters."""
+    if value is None:
+        return None
+    try:
+        accuracy = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(accuracy) or accuracy < 0:
+        return None
+    return accuracy
+
+
 # Safely parse fare values into Decimal for money calculations.
 def to_decimal(value, default="0.00"):
     """Safely parse fare values into Decimal for money calculations."""
@@ -567,6 +581,39 @@ def distance_between_points_km(lat_a, lng_a, lat_b, lng_b):
     )
     angular_distance = 2 * math.atan2(math.sqrt(haversine), math.sqrt(1 - haversine))
     return 6371 * angular_distance
+
+
+def closest_route_stop(latitude, longitude, route_stops):
+    """Return the nearest stop and distance for a GPS point."""
+    if not route_stops:
+        return None, None
+    nearest_stop = min(
+        route_stops,
+        key=lambda stop: distance_between_points_km(latitude, longitude, stop["lat"], stop["lng"]),
+    )
+    nearest_distance = distance_between_points_km(latitude, longitude, nearest_stop["lat"], nearest_stop["lng"])
+    return nearest_stop, nearest_distance
+
+
+def route_segment_label(latitude, longitude, route_stops):
+    """Return a conservative between-stops label for points not snapped to a stop."""
+    if len(route_stops) < 2:
+        return None
+
+    nearest_index = min(
+        range(len(route_stops)),
+        key=lambda index: distance_between_points_km(
+            latitude,
+            longitude,
+            route_stops[index]["lat"],
+            route_stops[index]["lng"],
+        ),
+    )
+    if nearest_index <= 0:
+        return f"Approaching {route_stops[0]['name']}"
+    if nearest_index >= len(route_stops) - 1:
+        return f"Approaching {route_stops[-1]['name']}"
+    return f"Between {route_stops[nearest_index - 1]['name']} and {route_stops[nearest_index]['name']}"
 
 
 # Round a fare value to the nearest whole peso.
@@ -667,11 +714,7 @@ def get_trip_current_stop_details(trip, latest_gps=None, fallback_stop_name=None
     if latest_gps and latest_gps.get("latitude") is not None and latest_gps.get("longitude") is not None:
         latitude = float(latest_gps["latitude"])
         longitude = float(latest_gps["longitude"])
-        nearest_stop = min(
-            route_stops,
-            key=lambda stop: distance_between_points_km(latitude, longitude, stop["lat"], stop["lng"]),
-        )
-        nearest_distance = distance_between_points_km(latitude, longitude, nearest_stop["lat"], nearest_stop["lng"])
+        nearest_stop, nearest_distance = closest_route_stop(latitude, longitude, route_stops)
         if nearest_distance <= STOP_PASS_RADIUS_KM:
             return nearest_stop
         if fallback_stop_name is None:
@@ -1178,6 +1221,17 @@ def build_public_commuter_data(conn, live_data=None):
     for route in route_rows:
         stops = get_route_stop_details(route["route_name"])
         fare_guide = estimate_fare_table(route["distance_km"], route["minimum_fare"], route["discounted_fare"])
+        fare_matrix_rows = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT origin_stop, destination_stop, regular_fare, discounted_fare
+                FROM fare_matrix
+                WHERE route_id = ?
+                """,
+                (route["id"],),
+            ).fetchall()
+        ]
         route_live_buses = [bus for bus in live_buses if bus["direction"] == route["route_name"]]
 
         next_bus = None
@@ -1203,6 +1257,15 @@ def build_public_commuter_data(conn, live_data=None):
                 "coords": parse_route_coords(route["coords_json"]),
                 "stops": stops,
                 "fareGuide": fare_guide,
+                "fareMatrix": [
+                    {
+                        "originStop": row["origin_stop"],
+                        "destinationStop": row["destination_stop"],
+                        "regular": float(round_peso(row["regular_fare"])),
+                        "discounted": float(round_peso(row["discounted_fare"])),
+                    }
+                    for row in fare_matrix_rows
+                ],
                 "minimumFare": to_float(route["minimum_fare"], 15.0),
                 "discountedFare": to_float(route["discounted_fare"], 12.0),
                 "availableBusCount": len(route_live_buses),
@@ -1244,6 +1307,8 @@ def build_public_commuter_data(conn, live_data=None):
                 )
 
     stop_directory = []
+    chronological_stop_names = []
+    seen_stop_names = set()
     for stop in stops_by_name.values():
         next_arrivals = sorted(stop["nextArrivals"], key=lambda item: item["minutes"])[:3]
         stop_directory.append(
@@ -1257,12 +1322,19 @@ def build_public_commuter_data(conn, live_data=None):
                 "nextArrivals": next_arrivals,
             }
         )
+    for route in routes_payload:
+        for stop in route["stops"]:
+            key = stop_name_key(stop["name"])
+            if key in seen_stop_names:
+                continue
+            seen_stop_names.add(key)
+            chronological_stop_names.append(stop["name"])
     stop_directory.sort(key=lambda item: (-item["routeCount"], item["name"]))
 
     return {
         "routes": routes_payload,
         "stopDirectory": stop_directory,
-        "stopNames": [stop["name"] for stop in stop_directory],
+        "stopNames": chronological_stop_names,
         "serviceAlerts": active_alerts,
     }
 
@@ -1270,14 +1342,14 @@ def build_public_commuter_data(conn, live_data=None):
 # Create a readable location label when GPS is not exactly on a known stop.
 def derive_trip_location_label(trip, latitude, longitude):
     """Create a readable location label when GPS is not exactly on a known stop."""
-    route_stops = ROUTE_STOPS.get(trip.get("route_name") or "", [])
+    route_stops = get_route_stop_details(trip.get("route_name"))
     if route_stops:
-        nearest_stop = min(
-            route_stops,
-            key=lambda stop: distance_between_points_km(latitude, longitude, stop[1], stop[2]),
-        )
-        if distance_between_points_km(latitude, longitude, nearest_stop[1], nearest_stop[2]) <= 3:
-            return nearest_stop[0]
+        nearest_stop, nearest_distance = closest_route_stop(latitude, longitude, route_stops)
+        if nearest_distance is not None and nearest_distance <= STOP_LABEL_SNAP_RADIUS_KM:
+            return nearest_stop["name"]
+        segment_label = route_segment_label(latitude, longitude, route_stops)
+        if segment_label:
+            return segment_label
 
     coords = parse_route_coords(trip.get("coords_json"))
     if len(coords) >= 2:
@@ -3687,6 +3759,10 @@ def build_driver_overview(conn, driver_id):
 # Build conductor terminal data for active trip monitoring and ticketing.
 def build_conductor_overview(conn, conductor_id):
     """Build conductor terminal data for active trip monitoring and ticketing."""
+    conductor = conn.execute(
+        "SELECT id, username, full_name FROM users WHERE id = ?",
+        (conductor_id,),
+    ).fetchone()
     active_trip = get_active_trip_for_conductor(conn, conductor_id)
     available_trips = [
         dict(row)
@@ -3775,6 +3851,7 @@ def build_conductor_overview(conn, conductor_id):
         )
 
     return {
+        "conductor": dict(conductor) if conductor else None,
         "active_trip": active_trip,
         "available_trips": available_trips,
         "buses": buses,
@@ -5228,6 +5305,7 @@ def driver_location():
     payload = request.get_json(silent=True) or {}
     latitude = payload.get("latitude")
     longitude = payload.get("longitude")
+    accuracy = parse_gps_accuracy(payload.get("accuracy"))
 
     if latitude is None or longitude is None:
         conn.close()
@@ -5237,6 +5315,9 @@ def driver_location():
     if coordinate_error:
         conn.close()
         return jsonify({"error": coordinate_error}), 400
+    if accuracy is not None and accuracy > 150:
+        conn.close()
+        return jsonify({"error": f"GPS accuracy is low ({round(accuracy)} m). Wait for a better lock."}), 400
 
     current_stop_details = record_trip_gps_location(conn, trip, latitude, longitude, trip.get("conductor_id"))
     current_stop = (
@@ -5256,39 +5337,6 @@ def driver_location():
             "recorded_at": normalize_json_value(to_db_time(now())),
         }
     )
-
-
-@app.route("/conductor/location", methods=["POST"])
-@require_role("conductor")
-# Receive conductor GPS coordinates as a fallback live tracking source.
-def conductor_location():
-    """Receive conductor GPS coordinates as a fallback live tracking source."""
-    conn = get_db()
-    conductor_id = session["user_id"]
-    trip = get_active_trip_for_conductor(conn, conductor_id)
-
-    if not trip:
-        conn.close()
-        return jsonify({"error": "No active trip found."}), 400
-
-    payload = request.get_json(silent=True) or {}
-    latitude = payload.get("latitude")
-    longitude = payload.get("longitude")
-
-    if latitude is None or longitude is None:
-        conn.close()
-        return jsonify({"error": "Latitude and longitude are required."}), 400
-
-    latitude, longitude, coordinate_error = parse_gps_coordinates(latitude, longitude)
-    if coordinate_error:
-        conn.close()
-        return jsonify({"error": coordinate_error}), 400
-
-    record_trip_gps_location(conn, trip, latitude, longitude, conductor_id)
-    conn.commit()
-    broadcast_live_tracking_update(conn)
-    conn.close()
-    return jsonify({"success": True})
 
 
 @app.route("/conductor", methods=["GET", "POST"])
@@ -5513,13 +5561,15 @@ def conductor_live():
 
     latest_gps = get_latest_trip_gps(conn, trip["id"])
     if not latest_gps:
+        latest_record = get_latest_trip_record(conn, trip["id"])
+        current_stop = latest_record["stop_name"] if latest_record else "Waiting for GPS location"
         sidebar_payload = build_conductor_sidebar_payload(conn, conductor_id, trip, None)
         conn.close()
         return jsonify(
             {
                 "active": True,
                 "tracking": False,
-                "stop_name": "Waiting for GPS location",
+                "stop_name": current_stop,
                 "occupancy": int(trip.get("occupancy") or 0),
                 "capacity": int(trip.get("capacity") or DEFAULT_BUS_CAPACITY),
                 "sidebar": normalize_json_value(sidebar_payload),

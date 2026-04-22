@@ -13,6 +13,7 @@
     const currentStopDetail = document.getElementById('currentStopDetail');
     const LOCATION_REFRESH_MS = 3000;
     const MIN_LOCATION_SEND_MS = 2500;
+    const MAX_GPS_ACCURACY_METERS = 150;
     const GEO_OPTIONS = {
       enableHighAccuracy: true,
       maximumAge: 1000,
@@ -28,7 +29,7 @@
         return null;
       }
       const normalized = String(value).trim().replace(' ', 'T');
-      const date = new Date(`${normalized}Z`);
+      const date = new Date(normalized);
       return Number.isNaN(date.getTime()) ? null : date;
     }
 
@@ -106,14 +107,19 @@
       setInterval(updateDuration, 1000);
     }
 
-    async function pushLocation(latitude, longitude) {
+    async function pushLocation(position) {
+      const coords = position.coords;
       const response = await fetch(driverEndpoints.driverLocationUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...csrfHeaders
         },
-        body: JSON.stringify({ latitude, longitude })
+        body: JSON.stringify({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy
+        })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -149,6 +155,15 @@
     }
 
     async function handlePosition(position) {
+      const accuracy = Number(position.coords.accuracy);
+      if (Number.isFinite(accuracy) && accuracy > MAX_GPS_ACCURACY_METERS) {
+        setTrackingStatus(`GPS accuracy is low (${Math.round(accuracy)} m). Waiting for a better lock.`, true);
+        if (gpsDetail) {
+          gpsDetail.textContent = 'Move near a window or outside before sending the next location.';
+        }
+        return;
+      }
+
       const now = Date.now();
       if (locationPushInFlight || now - lastLocationSentAt < MIN_LOCATION_SEND_MS) {
         return;
@@ -156,7 +171,7 @@
 
       locationPushInFlight = true;
       try {
-        const result = await pushLocation(position.coords.latitude, position.coords.longitude);
+        const result = await pushLocation(position);
         if (result.success) {
           lastLocationSentAt = Date.now();
           const sentAt = new Date().toLocaleTimeString();
