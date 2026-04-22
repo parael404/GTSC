@@ -100,6 +100,15 @@
             <p class="section-copy">Super admins control account creation, role assignment, and inactive profile removal.</p>
           </div>
         </div>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+          <div class="profile-message-list" role="status" aria-live="polite">
+            {% for category, message in messages %}
+            <p class="profile-message profile-message-{{ category }}">{{ message }}</p>
+            {% endfor %}
+          </div>
+          {% endif %}
+        {% endwith %}
 
         <div class="report-grid">
           <article class="panel">
@@ -143,7 +152,7 @@
                   </select>
                 </label>
               </div>
-              <button type="submit" class="solid-button form-submit">{{ admin_icon('user') }}Create Profile</button>
+              <button type="submit" class="solid-button form-submit" data-confirm="Create this profile?">{{ admin_icon('user') }}Create Profile</button>
             </form>
           </article>
 

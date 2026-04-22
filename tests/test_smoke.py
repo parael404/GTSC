@@ -118,6 +118,20 @@ class SmokeTests(unittest.TestCase):
         self.assertTrue(app_module.gmail_reset_configured())
         self.assertEqual(app_module.get_gmail_app_password(), "abcdefghijklmnop")
 
+    @patch.dict(app_module.os.environ, {"RESEND_API_KEY": "re_test_key", "EMAIL_FROM": "Gajoda TSC <onboarding@resend.dev>"})
+    def test_resend_email_config_is_detected(self):
+        self.assertTrue(app_module.resend_reset_configured())
+        self.assertTrue(app_module.password_reset_email_configured())
+
+    def test_duplicate_profile_message_identifies_username_and_email(self):
+        conflict = {
+            "id": 2,
+            "username": "DriverOne",
+            "email": "driver@example.com",
+        }
+        message = app_module.describe_user_identity_conflict(conflict, "driverone", "DRIVER@example.com")
+        self.assertEqual(message, "That username and email are already used by another profile.")
+
     def test_far_gps_point_does_not_snap_to_neeco_stop(self):
         trip = {"route_name": app_module.FORWARD_ROUTE_NAME, "end_point": "Cabanatuan Terminal"}
         label = app_module.derive_trip_location_label(trip, 15.3755, 120.9775)

@@ -10,6 +10,8 @@ import secrets
 import smtplib
 import socket
 import ssl
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from email.message import EmailMessage
@@ -20,7 +22,7 @@ from xml.sax.saxutils import escape
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_socketio import SocketIO, join_room
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -2092,6 +2094,26 @@ def gmail_reset_configured():
     return bool(get_gmail_sender() and get_gmail_app_password())
 
 
+def resend_reset_configured():
+    """Return whether Resend HTTP email credentials are available."""
+    return bool(get_resend_api_key() and get_email_sender())
+
+
+def password_reset_email_configured():
+    """Return whether any password reset email provider is configured."""
+    return resend_reset_configured() or gmail_reset_configured()
+
+
+def get_resend_api_key():
+    """Return the configured Resend API key."""
+    return os.environ.get("RESEND_API_KEY", "").strip()
+
+
+def get_email_sender():
+    """Return the generic email sender used by HTTP email providers."""
+    return os.environ.get("EMAIL_FROM", "").strip()
+
+
 def get_gmail_sender():
     """Return the configured Gmail sender address."""
     return os.environ.get("GMAIL_USER", "").strip()
@@ -2172,14 +2194,8 @@ def build_password_reset_url(token):
     return f"{base_url}{url_for('reset_password', token=token)}"
 
 
-def send_password_reset_email(user, reset_url, expires_at):
-    """Send a password reset link through Gmail SMTP."""
-    sender = get_gmail_sender()
-    app_password = get_gmail_app_password()
-    if not sender or not app_password:
-        raise RuntimeError("Gmail SMTP credentials are not configured.")
-
-    subject = "Gajoda account password reset"
+def build_password_reset_email(user, reset_url, expires_at):
+    """Build the password reset email subject and plain-text body."""
     body = (
         f"Hello {user['full_name']},\n\n"
         "We received a request to reset your Gajoda account password.\n\n"
@@ -2187,6 +2203,62 @@ def send_password_reset_email(user, reset_url, expires_at):
         f"This link expires at {to_db_time(expires_at)} and can only be used once.\n\n"
         "If you did not request this, you can ignore this email."
     )
+    return "Gajoda account password reset", body
+
+
+def send_password_reset_email(user, reset_url, expires_at):
+    """Send a password reset link through the configured email provider."""
+    if resend_reset_configured():
+        send_password_reset_email_resend(user, reset_url, expires_at)
+        return
+    send_password_reset_email_gmail(user, reset_url, expires_at)
+
+
+def send_password_reset_email_resend(user, reset_url, expires_at):
+    """Send a password reset link through Resend's HTTPS API."""
+    api_key = get_resend_api_key()
+    sender = get_email_sender()
+    if not api_key or not sender:
+        raise RuntimeError("Resend email credentials are not configured.")
+
+    subject, body = build_password_reset_email(user, reset_url, expires_at)
+    payload = json.dumps(
+        {
+            "from": sender,
+            "to": [user["email"]],
+            "subject": subject,
+            "text": body,
+        }
+    ).encode("utf-8")
+    request_data = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "gajoda-password-reset/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request_data, timeout=20) as response:
+            response_body = response.read().decode("utf-8", errors="replace")
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError(f"Resend returned HTTP {response.status}: {response_body}")
+    except urllib.error.HTTPError as error:
+        error_body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Resend returned HTTP {error.code}: {error_body}") from error
+    app.logger.info("Resend accepted password reset email sender=%s recipient=%s", sender, user["email"])
+
+
+def send_password_reset_email_gmail(user, reset_url, expires_at):
+    """Send a password reset link through Gmail SMTP."""
+    sender = get_gmail_sender()
+    app_password = get_gmail_app_password()
+    if not sender or not app_password:
+        raise RuntimeError("Gmail SMTP credentials are not configured.")
+
+    subject, body = build_password_reset_email(user, reset_url, expires_at)
 
     message = EmailMessage()
     message["From"] = sender
@@ -3129,6 +3201,40 @@ def build_user_directory(conn):
         """
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def find_user_identity_conflict(conn, username, email, exclude_user_id=None):
+    """Find an existing account with the same username or email."""
+    normalized_username = (username or "").strip().lower()
+    normalized_email = (email or "").strip().lower()
+    query = """
+        SELECT id, username, email
+        FROM users
+        WHERE (LOWER(username) = ? OR LOWER(email) = ?)
+    """
+    params = [normalized_username, normalized_email]
+    if exclude_user_id is not None:
+        query += " AND id <> ?"
+        params.append(exclude_user_id)
+    query += " LIMIT 1"
+    return conn.execute(query, tuple(params)).fetchone()
+
+
+def describe_user_identity_conflict(conflict_row, username, email):
+    """Return a clear profile duplicate message for the matching field."""
+    if not conflict_row:
+        return ""
+    requested_username = (username or "").strip().lower()
+    requested_email = (email or "").strip().lower()
+    existing_username = (conflict_row["username"] or "").strip().lower()
+    existing_email = (conflict_row["email"] or "").strip().lower()
+    if existing_username == requested_username and existing_email == requested_email:
+        return "That username and email are already used by another profile."
+    if existing_username == requested_username:
+        return "That username is already used by another profile."
+    if existing_email == requested_email:
+        return "That email is already used by another profile."
+    return "That username or email is already used by another profile."
 
 
 # Build staff login/activity attendance rows from session and user data.
@@ -4375,7 +4481,7 @@ def login():
 @app.route("/forgot-password", methods=["GET", "POST"])
 # Notify admins that a staff account needs a password reset.
 def forgot_password():
-    """Send a password reset link when Gmail is configured, otherwise notify admins."""
+    """Send a password reset link when email is configured, otherwise notify admins."""
     if request.method == "POST":
         account_identifier = (
             request.form.get("account_identifier", "") or request.form.get("email", "")
@@ -4393,7 +4499,7 @@ def forgot_password():
             ).fetchone()
             record_password_reset_request(conn, user, account_identifier)
             email_delivery_failed = False
-            if user and gmail_reset_configured():
+            if user and password_reset_email_configured():
                 token, expires_at = create_password_reset_token(conn, user["id"])
                 reset_url = build_password_reset_url(token)
                 try:
@@ -4405,11 +4511,11 @@ def forgot_password():
                         "Password Reset Email Sent",
                         f"Password reset email was sent to {user['email']}.",
                     )
-                except (smtplib.SMTPException, OSError, TimeoutError) as email_error:
+                except (smtplib.SMTPException, urllib.error.URLError, OSError, TimeoutError, RuntimeError) as email_error:
                     email_delivery_failed = True
                     app.logger.exception(
                         "Password reset email failed for sender=%s recipient=%s: %s",
-                        get_gmail_sender(),
+                        get_email_sender() or get_gmail_sender(),
                         user["email"],
                         email_error,
                     )
@@ -4422,13 +4528,13 @@ def forgot_password():
                         user["id"],
                         user["role"],
                         "Password Reset Email Failed",
-                        f"Password reset email could not be sent to {user['email']}. Check Gmail SMTP settings.",
+                        f"Password reset email could not be sent to {user['email']}. Check email provider settings.",
                     )
                 conn.commit()
             broadcast_live_tracking_update(conn)
         except Exception:
             app.logger.exception("Password reset request could not be recorded.")
-            error_detail = "Email settings could not be verified. Check the Flask terminal for the Gmail SMTP error."
+            error_detail = "Email settings could not be verified. Check the Flask terminal for the email provider error."
             if app.config.get("TESTING") or app.debug:
                 import traceback
                 error_detail = traceback.format_exc().splitlines()[-1]
@@ -4440,12 +4546,12 @@ def forgot_password():
             if conn:
                 conn.close()
 
-        if user and gmail_reset_configured() and not email_delivery_failed:
+        if user and password_reset_email_configured() and not email_delivery_failed:
             message = "If that account is registered, a password reset link has been sent to its email address."
         elif user and email_delivery_failed:
-            message = "Your reset request was recorded, but the email could not be sent. Ask the administrator to check the Gmail SMTP settings."
+            message = "Your reset request was recorded, but the email could not be sent. Ask the administrator to check the email provider settings."
         elif user:
-            message = "Your request has been sent to the super administrator because Gmail email is not configured."
+            message = "Your request has been sent to the super administrator because password reset email is not configured."
         else:
             message = "If that account is registered, reset instructions will be sent or reviewed by the super administrator."
         return render_template("forgot_password.html", message=message)
@@ -4538,10 +4644,7 @@ def super_admin_dashboard():
             full_name = request.form.get("full_name", "").strip()
 
             if username and email and password and full_name and role in {"super_admin", "admin", "driver", "conductor"}:
-                existing_user = conn.execute(
-                    "SELECT id FROM users WHERE username = ? OR email = ?",
-                    (username, email),
-                ).fetchone()
+                existing_user = find_user_identity_conflict(conn, username, email)
                 if not existing_user:
                     conn.execute(
                         """
@@ -4559,7 +4662,14 @@ def super_admin_dashboard():
                     )
                     conn.commit()
                     conn.close()
+                    flash(f"Profile created for {full_name}.", "success")
                     return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+                flash(describe_user_identity_conflict(existing_user, username, email), "error")
+                conn.close()
+                return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+            flash("Complete all profile fields before creating an account.", "error")
+            conn.close()
+            return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
         elif action == "update_profile":
             redirect_tab = request.form.get("redirect_tab", "profiles").strip() or "profiles"
             user_id_raw = request.form.get("user_id", "").strip()
@@ -4571,15 +4681,24 @@ def super_admin_dashboard():
             if user_id_raw.isdigit() and username and email and full_name and role in {"super_admin", "admin", "driver", "conductor"}:
                 user_id = int(user_id_raw)
                 user_row = conn.execute("SELECT id, full_name, role FROM users WHERE id = ?", (user_id,)).fetchone()
-                duplicate_user = conn.execute(
-                    "SELECT id FROM users WHERE (username = ? OR email = ?) AND id <> ?",
-                    (username, email, user_id),
-                ).fetchone()
+                duplicate_user = find_user_identity_conflict(conn, username, email, user_id)
                 super_admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'super_admin'").fetchone()["total"]
                 admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").fetchone()["total"]
                 demotes_last_super_admin = user_row and user_row["role"] == "super_admin" and role != "super_admin" and super_admin_count <= 1
                 demotes_last_admin = user_row and user_row["role"] == "admin" and role != "admin" and admin_count <= 1
-                if user_row and not duplicate_user and not demotes_last_super_admin and not demotes_last_admin:
+                if duplicate_user:
+                    flash(describe_user_identity_conflict(duplicate_user, username, email), "error")
+                    conn.close()
+                    return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+                if demotes_last_super_admin:
+                    flash("Keep at least one super admin profile active.", "error")
+                    conn.close()
+                    return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+                if demotes_last_admin:
+                    flash("Keep at least one admin profile active.", "error")
+                    conn.close()
+                    return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+                if user_row:
                     conn.execute(
                         """
                         UPDATE users
@@ -4591,7 +4710,14 @@ def super_admin_dashboard():
                     log_event(conn, session["user_id"], "super_admin", "Profile Updated", f"Updated profile for {full_name} ({username}).")
                     conn.commit()
                     conn.close()
+                    flash(f"Profile updated for {full_name}.", "success")
                     return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+                flash("That profile could not be found.", "error")
+                conn.close()
+                return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+            flash("Complete all profile fields before saving changes.", "error")
+            conn.close()
+            return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
         elif action == "delete_profile":
             redirect_tab = request.form.get("redirect_tab", "profiles").strip() or "profiles"
             user_id_raw = request.form.get("user_id", "").strip()
