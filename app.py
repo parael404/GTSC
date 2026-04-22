@@ -8,6 +8,7 @@ import math
 import os
 import secrets
 import smtplib
+import socket
 import ssl
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -2101,6 +2102,46 @@ def get_gmail_app_password():
     return "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
 
 
+class IPv4SMTP_SSL(smtplib.SMTP_SSL):
+    """SMTP_SSL variant that avoids IPv6-only connection attempts on hosts without IPv6."""
+
+    def _get_socket(self, host, port, timeout):
+        addresses = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        last_error = None
+        for family, socktype, proto, _, sockaddr in addresses:
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(timeout)
+            try:
+                sock.connect(sockaddr)
+                return self.context.wrap_socket(sock, server_hostname=host)
+            except OSError as error:
+                last_error = error
+                sock.close()
+        if last_error:
+            raise last_error
+        raise OSError(f"No IPv4 SMTP address found for {host}:{port}")
+
+
+class IPv4SMTP(smtplib.SMTP):
+    """SMTP variant that avoids IPv6-only connection attempts on hosts without IPv6."""
+
+    def _get_socket(self, host, port, timeout):
+        addresses = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        last_error = None
+        for family, socktype, proto, _, sockaddr in addresses:
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(timeout)
+            try:
+                sock.connect(sockaddr)
+                return sock
+            except OSError as error:
+                last_error = error
+                sock.close()
+        if last_error:
+            raise last_error
+        raise OSError(f"No IPv4 SMTP address found for {host}:{port}")
+
+
 def create_password_reset_token(conn, user_id):
     """Create a one-time password reset token and store only its hash."""
     raw_token = secrets.token_urlsafe(48)
@@ -2154,9 +2195,30 @@ def send_password_reset_email(user, reset_url, expires_at):
     message.set_content(body)
 
     context = ssl.create_default_context()
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=20) as smtp:
-        smtp.login(sender, app_password)
-        smtp.send_message(message)
+    smtp_errors = []
+    for mode, smtp_class, port in (
+        ("SSL", IPv4SMTP_SSL, 465),
+        ("STARTTLS", IPv4SMTP, 587),
+    ):
+        try:
+            with smtp_class("smtp.gmail.com", port, timeout=20, context=context) if mode == "SSL" else smtp_class("smtp.gmail.com", port, timeout=20) as smtp:
+                if mode == "STARTTLS":
+                    smtp.starttls(context=context)
+                smtp.login(sender, app_password)
+                refused_recipients = smtp.send_message(message)
+                if refused_recipients:
+                    raise smtplib.SMTPRecipientsRefused(refused_recipients)
+            app.logger.info(
+                "Gmail SMTP accepted password reset email mode=%s sender=%s recipient=%s",
+                mode,
+                sender,
+                user["email"],
+            )
+            return
+        except (smtplib.SMTPException, OSError, TimeoutError) as error:
+            smtp_errors.append(f"{mode}/{port}: {error}")
+            app.logger.warning("Gmail SMTP attempt failed mode=%s port=%s error=%s", mode, port, error)
+    raise OSError("; ".join(smtp_errors))
 
 
 def get_valid_password_reset_token(conn, token):
