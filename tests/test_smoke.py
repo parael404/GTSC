@@ -113,6 +113,11 @@ class SmokeTests(unittest.TestCase):
         DBConnection(raw_conn).rollback()
         self.assertTrue(raw_conn.rolled_back)
 
+    @patch.dict(app_module.os.environ, {"GMAIL_USER": "sender@gmail.com", "GMAIL_APP_PASSWORD": "abcd efgh ijkl mnop"})
+    def test_gmail_app_password_spacing_is_normalized(self):
+        self.assertTrue(app_module.gmail_reset_configured())
+        self.assertEqual(app_module.get_gmail_app_password(), "abcdefghijklmnop")
+
     def test_far_gps_point_does_not_snap_to_neeco_stop(self):
         trip = {"route_name": app_module.FORWARD_ROUTE_NAME, "end_point": "Cabanatuan Terminal"}
         label = app_module.derive_trip_location_label(trip, 15.3755, 120.9775)

@@ -2088,7 +2088,17 @@ def password_reset_token_hash(token):
 
 def gmail_reset_configured():
     """Return whether Gmail SMTP credentials are available."""
-    return bool(os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD"))
+    return bool(get_gmail_sender() and get_gmail_app_password())
+
+
+def get_gmail_sender():
+    """Return the configured Gmail sender address."""
+    return os.environ.get("GMAIL_USER", "").strip()
+
+
+def get_gmail_app_password():
+    """Return the Gmail app password without copy/paste spacing."""
+    return "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
 
 
 def create_password_reset_token(conn, user_id):
@@ -2123,8 +2133,8 @@ def build_password_reset_url(token):
 
 def send_password_reset_email(user, reset_url, expires_at):
     """Send a password reset link through Gmail SMTP."""
-    sender = os.environ.get("GMAIL_USER", "").strip()
-    app_password = os.environ.get("GMAIL_APP_PASSWORD", "")
+    sender = get_gmail_sender()
+    app_password = get_gmail_app_password()
     if not sender or not app_password:
         raise RuntimeError("Gmail SMTP credentials are not configured.")
 
@@ -4320,17 +4330,38 @@ def forgot_password():
                 (account_identifier, account_identifier),
             ).fetchone()
             record_password_reset_request(conn, user, account_identifier)
+            email_delivery_failed = False
             if user and gmail_reset_configured():
                 token, expires_at = create_password_reset_token(conn, user["id"])
                 reset_url = build_password_reset_url(token)
-                send_password_reset_email(user, reset_url, expires_at)
-                log_event(
-                    conn,
-                    user["id"],
-                    user["role"],
-                    "Password Reset Email Sent",
-                    f"Password reset email was sent to {user['email']}.",
-                )
+                try:
+                    send_password_reset_email(user, reset_url, expires_at)
+                    log_event(
+                        conn,
+                        user["id"],
+                        user["role"],
+                        "Password Reset Email Sent",
+                        f"Password reset email was sent to {user['email']}.",
+                    )
+                except (smtplib.SMTPException, OSError, TimeoutError) as email_error:
+                    email_delivery_failed = True
+                    app.logger.exception(
+                        "Password reset email failed for sender=%s recipient=%s: %s",
+                        get_gmail_sender(),
+                        user["email"],
+                        email_error,
+                    )
+                    conn.execute(
+                        "UPDATE password_reset_tokens SET used_at = ? WHERE token_hash = ?",
+                        (to_db_time(now()), password_reset_token_hash(token)),
+                    )
+                    log_event(
+                        conn,
+                        user["id"],
+                        user["role"],
+                        "Password Reset Email Failed",
+                        f"Password reset email could not be sent to {user['email']}. Check Gmail SMTP settings.",
+                    )
                 conn.commit()
             broadcast_live_tracking_update(conn)
         except Exception:
@@ -4347,8 +4378,10 @@ def forgot_password():
             if conn:
                 conn.close()
 
-        if user and gmail_reset_configured():
+        if user and gmail_reset_configured() and not email_delivery_failed:
             message = "If that account is registered, a password reset link has been sent to its email address."
+        elif user and email_delivery_failed:
+            message = "Your reset request was recorded, but the email could not be sent. Ask the administrator to check the Gmail SMTP settings."
         elif user:
             message = "Your request has been sent to the super administrator because Gmail email is not configured."
         else:

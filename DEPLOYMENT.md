@@ -38,7 +38,7 @@ Set the `INITIAL_ADMIN_*` values before the first production deploy so the
 database bootstrap can create your first login without using public demo
 credentials.
 
-`GMAIL_APP_PASSWORD` is the 16-character Gmail app password for `GMAIL_USER`. Keep it in environment variables only. `APP_BASE_URL` must match the public deployment URL so password reset links point to the live system.
+`GMAIL_APP_PASSWORD` is the 16-character Gmail app password for `GMAIL_USER`. Gmail may display it in four groups with spaces; the app strips spaces automatically, but storing the 16 characters without spaces is preferred. Keep it in environment variables only. `APP_BASE_URL` must match the public deployment URL so password reset links point to the live system.
 
 ## Database Setup
 
