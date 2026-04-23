@@ -8,7 +8,10 @@ import math
 import os
 import secrets
 import smtplib
+import socket
 import ssl
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from email.message import EmailMessage
@@ -19,7 +22,7 @@ from xml.sax.saxutils import escape
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_socketio import SocketIO, join_room
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -167,7 +170,8 @@ PASSWORD_RESET_TOKEN_MINUTES = 30
 ADMIN_OPERATION_NOTIFICATION_TYPES = {"trip_started", "trip_ended", "high_crowd", "bus_full"}
 
 DEFAULT_BUS_CAPACITY = 30
-STOP_PASS_RADIUS_KM = 0.85
+STOP_PASS_RADIUS_KM = 0.45
+STOP_LABEL_SNAP_RADIUS_KM = 0.45
 AUTO_OFFBOARD_BOARDING_GRACE_SECONDS = 90
 CAMERA_STREAM_TYPES = {"hls", "mjpeg", "embed", "external", "webrtc", "rtsp_gateway"}
 CAMERA_STATUSES = {"online", "offline", "maintenance", "unconfigured"}
@@ -374,13 +378,14 @@ def validate_report_date_range(start_value=None, end_value=None):
         error = "The To date cannot be in the future."
     elif start_date and end_date and start_date > end_date:
         error = "The From date must be earlier than or equal to the To date."
-
     return {
         "start": start_date.isoformat() if start_date else "",
         "end": end_date.isoformat() if end_date else "",
         "is_filtered": bool(start_date or end_date),
         "today": today.isoformat(),
         "error": error,
+        "max_date": today.isoformat(),
+        "errors": [error] if error else [],
     }, error
 
 
@@ -557,6 +562,19 @@ def parse_gps_coordinates(latitude, longitude):
     return lat, lng, None
 
 
+def parse_gps_accuracy(value):
+    """Return optional browser GPS accuracy in meters."""
+    if value is None:
+        return None
+    try:
+        accuracy = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(accuracy) or accuracy < 0:
+        return None
+    return accuracy
+
+
 # Safely parse fare values into Decimal for money calculations.
 def to_decimal(value, default="0.00"):
     """Safely parse fare values into Decimal for money calculations."""
@@ -589,6 +607,39 @@ def distance_between_points_km(lat_a, lng_a, lat_b, lng_b):
     )
     angular_distance = 2 * math.atan2(math.sqrt(haversine), math.sqrt(1 - haversine))
     return 6371 * angular_distance
+
+
+def closest_route_stop(latitude, longitude, route_stops):
+    """Return the nearest stop and distance for a GPS point."""
+    if not route_stops:
+        return None, None
+    nearest_stop = min(
+        route_stops,
+        key=lambda stop: distance_between_points_km(latitude, longitude, stop["lat"], stop["lng"]),
+    )
+    nearest_distance = distance_between_points_km(latitude, longitude, nearest_stop["lat"], nearest_stop["lng"])
+    return nearest_stop, nearest_distance
+
+
+def route_segment_label(latitude, longitude, route_stops):
+    """Return a conservative between-stops label for points not snapped to a stop."""
+    if len(route_stops) < 2:
+        return None
+
+    nearest_index = min(
+        range(len(route_stops)),
+        key=lambda index: distance_between_points_km(
+            latitude,
+            longitude,
+            route_stops[index]["lat"],
+            route_stops[index]["lng"],
+        ),
+    )
+    if nearest_index <= 0:
+        return f"Approaching {route_stops[0]['name']}"
+    if nearest_index >= len(route_stops) - 1:
+        return f"Approaching {route_stops[-1]['name']}"
+    return f"Between {route_stops[nearest_index - 1]['name']} and {route_stops[nearest_index]['name']}"
 
 
 # Round a fare value to the nearest whole peso.
@@ -689,11 +740,7 @@ def get_trip_current_stop_details(trip, latest_gps=None, fallback_stop_name=None
     if latest_gps and latest_gps.get("latitude") is not None and latest_gps.get("longitude") is not None:
         latitude = float(latest_gps["latitude"])
         longitude = float(latest_gps["longitude"])
-        nearest_stop = min(
-            route_stops,
-            key=lambda stop: distance_between_points_km(latitude, longitude, stop["lat"], stop["lng"]),
-        )
-        nearest_distance = distance_between_points_km(latitude, longitude, nearest_stop["lat"], nearest_stop["lng"])
+        nearest_stop, nearest_distance = closest_route_stop(latitude, longitude, route_stops)
         if nearest_distance <= STOP_PASS_RADIUS_KM:
             return nearest_stop
         if fallback_stop_name is None:
@@ -1226,6 +1273,17 @@ def build_public_commuter_data(conn, live_data=None):
         stops = get_route_stop_details(route["route_name"])
         fare_guide = estimate_fare_table(route["distance_km"], route["minimum_fare"], route["discounted_fare"])
         segment_fares = build_route_segment_fares(conn, route, stops)
+        fare_matrix_rows = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT origin_stop, destination_stop, regular_fare, discounted_fare
+                FROM fare_matrix
+                WHERE route_id = ?
+                """,
+                (route["id"],),
+            ).fetchall()
+        ]
         route_live_buses = [bus for bus in live_buses if bus["direction"] == route["route_name"]]
 
         next_bus = None
@@ -1252,6 +1310,15 @@ def build_public_commuter_data(conn, live_data=None):
                 "stops": stops,
                 "fareGuide": fare_guide,
                 "segmentFares": segment_fares,
+                "fareMatrix": [
+                    {
+                        "originStop": row["origin_stop"],
+                        "destinationStop": row["destination_stop"],
+                        "regular": float(round_peso(row["regular_fare"])),
+                        "discounted": float(round_peso(row["discounted_fare"])),
+                    }
+                    for row in fare_matrix_rows
+                ],
                 "minimumFare": to_float(route["minimum_fare"], 15.0),
                 "discountedFare": to_float(route["discounted_fare"], 12.0),
                 "availableBusCount": len(route_live_buses),
@@ -1293,6 +1360,8 @@ def build_public_commuter_data(conn, live_data=None):
                 )
 
     stop_directory = []
+    chronological_stop_names = []
+    seen_stop_names = set()
     for stop in stops_by_name.values():
         next_arrivals = sorted(stop["nextArrivals"], key=lambda item: item["minutes"])[:3]
         stop_directory.append(
@@ -1306,12 +1375,19 @@ def build_public_commuter_data(conn, live_data=None):
                 "nextArrivals": next_arrivals,
             }
         )
+    for route in routes_payload:
+        for stop in route["stops"]:
+            key = stop_name_key(stop["name"])
+            if key in seen_stop_names:
+                continue
+            seen_stop_names.add(key)
+            chronological_stop_names.append(stop["name"])
     stop_directory.sort(key=lambda item: (-item["routeCount"], item["name"]))
 
     return {
         "routes": routes_payload,
         "stopDirectory": stop_directory,
-        "stopNames": [stop["name"] for stop in stop_directory],
+        "stopNames": chronological_stop_names,
         "serviceAlerts": active_alerts,
     }
 
@@ -1319,14 +1395,14 @@ def build_public_commuter_data(conn, live_data=None):
 # Create a readable location label when GPS is not exactly on a known stop.
 def derive_trip_location_label(trip, latitude, longitude):
     """Create a readable location label when GPS is not exactly on a known stop."""
-    route_stops = ROUTE_STOPS.get(trip.get("route_name") or "", [])
+    route_stops = get_route_stop_details(trip.get("route_name"))
     if route_stops:
-        nearest_stop = min(
-            route_stops,
-            key=lambda stop: distance_between_points_km(latitude, longitude, stop[1], stop[2]),
-        )
-        if distance_between_points_km(latitude, longitude, nearest_stop[1], nearest_stop[2]) <= 3:
-            return nearest_stop[0]
+        nearest_stop, nearest_distance = closest_route_stop(latitude, longitude, route_stops)
+        if nearest_distance is not None and nearest_distance <= STOP_LABEL_SNAP_RADIUS_KM:
+            return nearest_stop["name"]
+        segment_label = route_segment_label(latitude, longitude, route_stops)
+        if segment_label:
+            return segment_label
 
     coords = parse_route_coords(trip.get("coords_json"))
     if len(coords) >= 2:
@@ -2065,7 +2141,77 @@ def password_reset_token_hash(token):
 
 def gmail_reset_configured():
     """Return whether Gmail SMTP credentials are available."""
-    return bool(os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD"))
+    return bool(get_gmail_sender() and get_gmail_app_password())
+
+
+def resend_reset_configured():
+    """Return whether Resend HTTP email credentials are available."""
+    return bool(get_resend_api_key() and get_email_sender())
+
+
+def password_reset_email_configured():
+    """Return whether any password reset email provider is configured."""
+    return resend_reset_configured() or gmail_reset_configured()
+
+
+def get_resend_api_key():
+    """Return the configured Resend API key."""
+    return os.environ.get("RESEND_API_KEY", "").strip()
+
+
+def get_email_sender():
+    """Return the generic email sender used by HTTP email providers."""
+    return os.environ.get("EMAIL_FROM", "").strip()
+
+
+def get_gmail_sender():
+    """Return the configured Gmail sender address."""
+    return os.environ.get("GMAIL_USER", "").strip()
+
+
+def get_gmail_app_password():
+    """Return the Gmail app password without copy/paste spacing."""
+    return "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
+
+
+class IPv4SMTP_SSL(smtplib.SMTP_SSL):
+    """SMTP_SSL variant that avoids IPv6-only connection attempts on hosts without IPv6."""
+
+    def _get_socket(self, host, port, timeout):
+        addresses = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        last_error = None
+        for family, socktype, proto, _, sockaddr in addresses:
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(timeout)
+            try:
+                sock.connect(sockaddr)
+                return self.context.wrap_socket(sock, server_hostname=host)
+            except OSError as error:
+                last_error = error
+                sock.close()
+        if last_error:
+            raise last_error
+        raise OSError(f"No IPv4 SMTP address found for {host}:{port}")
+
+
+class IPv4SMTP(smtplib.SMTP):
+    """SMTP variant that avoids IPv6-only connection attempts on hosts without IPv6."""
+
+    def _get_socket(self, host, port, timeout):
+        addresses = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        last_error = None
+        for family, socktype, proto, _, sockaddr in addresses:
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(timeout)
+            try:
+                sock.connect(sockaddr)
+                return sock
+            except OSError as error:
+                last_error = error
+                sock.close()
+        if last_error:
+            raise last_error
+        raise OSError(f"No IPv4 SMTP address found for {host}:{port}")
 
 
 def create_password_reset_token(conn, user_id):
@@ -2098,14 +2244,8 @@ def build_password_reset_url(token):
     return f"{base_url}{url_for('reset_password', token=token)}"
 
 
-def send_password_reset_email(user, reset_url, expires_at):
-    """Send a password reset link through Gmail SMTP."""
-    sender = os.environ.get("GMAIL_USER", "").strip()
-    app_password = os.environ.get("GMAIL_APP_PASSWORD", "")
-    if not sender or not app_password:
-        raise RuntimeError("Gmail SMTP credentials are not configured.")
-
-    subject = "Gajoda account password reset"
+def build_password_reset_email(user, reset_url, expires_at):
+    """Build the password reset email subject and plain-text body."""
     body = (
         f"Hello {user['full_name']},\n\n"
         "We received a request to reset your Gajoda account password.\n\n"
@@ -2113,6 +2253,62 @@ def send_password_reset_email(user, reset_url, expires_at):
         f"This link expires at {to_db_time(expires_at)} and can only be used once.\n\n"
         "If you did not request this, you can ignore this email."
     )
+    return "Gajoda account password reset", body
+
+
+def send_password_reset_email(user, reset_url, expires_at):
+    """Send a password reset link through the configured email provider."""
+    if resend_reset_configured():
+        send_password_reset_email_resend(user, reset_url, expires_at)
+        return
+    send_password_reset_email_gmail(user, reset_url, expires_at)
+
+
+def send_password_reset_email_resend(user, reset_url, expires_at):
+    """Send a password reset link through Resend's HTTPS API."""
+    api_key = get_resend_api_key()
+    sender = get_email_sender()
+    if not api_key or not sender:
+        raise RuntimeError("Resend email credentials are not configured.")
+
+    subject, body = build_password_reset_email(user, reset_url, expires_at)
+    payload = json.dumps(
+        {
+            "from": sender,
+            "to": [user["email"]],
+            "subject": subject,
+            "text": body,
+        }
+    ).encode("utf-8")
+    request_data = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "gajoda-password-reset/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request_data, timeout=20) as response:
+            response_body = response.read().decode("utf-8", errors="replace")
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError(f"Resend returned HTTP {response.status}: {response_body}")
+    except urllib.error.HTTPError as error:
+        error_body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Resend returned HTTP {error.code}: {error_body}") from error
+    app.logger.info("Resend accepted password reset email sender=%s recipient=%s", sender, user["email"])
+
+
+def send_password_reset_email_gmail(user, reset_url, expires_at):
+    """Send a password reset link through Gmail SMTP."""
+    sender = get_gmail_sender()
+    app_password = get_gmail_app_password()
+    if not sender or not app_password:
+        raise RuntimeError("Gmail SMTP credentials are not configured.")
+
+    subject, body = build_password_reset_email(user, reset_url, expires_at)
 
     message = EmailMessage()
     message["From"] = sender
@@ -2121,9 +2317,30 @@ def send_password_reset_email(user, reset_url, expires_at):
     message.set_content(body)
 
     context = ssl.create_default_context()
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=20) as smtp:
-        smtp.login(sender, app_password)
-        smtp.send_message(message)
+    smtp_errors = []
+    for mode, smtp_class, port in (
+        ("SSL", IPv4SMTP_SSL, 465),
+        ("STARTTLS", IPv4SMTP, 587),
+    ):
+        try:
+            with smtp_class("smtp.gmail.com", port, timeout=20, context=context) if mode == "SSL" else smtp_class("smtp.gmail.com", port, timeout=20) as smtp:
+                if mode == "STARTTLS":
+                    smtp.starttls(context=context)
+                smtp.login(sender, app_password)
+                refused_recipients = smtp.send_message(message)
+                if refused_recipients:
+                    raise smtplib.SMTPRecipientsRefused(refused_recipients)
+            app.logger.info(
+                "Gmail SMTP accepted password reset email mode=%s sender=%s recipient=%s",
+                mode,
+                sender,
+                user["email"],
+            )
+            return
+        except (smtplib.SMTPException, OSError, TimeoutError) as error:
+            smtp_errors.append(f"{mode}/{port}: {error}")
+            app.logger.warning("Gmail SMTP attempt failed mode=%s port=%s error=%s", mode, port, error)
+    raise OSError("; ".join(smtp_errors))
 
 
 def get_valid_password_reset_token(conn, token):
@@ -3036,6 +3253,40 @@ def build_user_directory(conn):
     return [dict(row) for row in rows]
 
 
+def find_user_identity_conflict(conn, username, email, exclude_user_id=None):
+    """Find an existing account with the same username or email."""
+    normalized_username = (username or "").strip().lower()
+    normalized_email = (email or "").strip().lower()
+    query = """
+        SELECT id, username, email
+        FROM users
+        WHERE (LOWER(username) = ? OR LOWER(email) = ?)
+    """
+    params = [normalized_username, normalized_email]
+    if exclude_user_id is not None:
+        query += " AND id <> ?"
+        params.append(exclude_user_id)
+    query += " LIMIT 1"
+    return conn.execute(query, tuple(params)).fetchone()
+
+
+def describe_user_identity_conflict(conflict_row, username, email):
+    """Return a clear profile duplicate message for the matching field."""
+    if not conflict_row:
+        return ""
+    requested_username = (username or "").strip().lower()
+    requested_email = (email or "").strip().lower()
+    existing_username = (conflict_row["username"] or "").strip().lower()
+    existing_email = (conflict_row["email"] or "").strip().lower()
+    if existing_username == requested_username and existing_email == requested_email:
+        return "That username and email are already used by another profile."
+    if existing_username == requested_username:
+        return "That username is already used by another profile."
+    if existing_email == requested_email:
+        return "That email is already used by another profile."
+    return "That username or email is already used by another profile."
+
+
 # Build staff login/activity attendance rows from session and user data.
 def build_staff_attendance(conn, limit=25):
     """Build staff login/activity attendance rows from session and user data."""
@@ -3762,7 +4013,7 @@ def build_driver_overview(conn, driver_id):
 def build_conductor_overview(conn, conductor_id):
     """Build conductor terminal data for active trip monitoring and ticketing."""
     conductor = conn.execute(
-        "SELECT id, full_name FROM users WHERE id = ?",
+        "SELECT id, username, full_name FROM users WHERE id = ?",
         (conductor_id,),
     ).fetchone()
     active_trip = get_active_trip_for_conductor(conn, conductor_id)
@@ -4313,7 +4564,7 @@ def login():
 @app.route("/forgot-password", methods=["GET", "POST"])
 # Notify admins that a staff account needs a password reset.
 def forgot_password():
-    """Send a password reset link when Gmail is configured, otherwise notify admins."""
+    """Send a password reset link when email is configured, otherwise notify admins."""
     if request.method == "POST":
         account_identifier = (
             request.form.get("account_identifier", "") or request.form.get("email", "")
@@ -4330,22 +4581,43 @@ def forgot_password():
                 (account_identifier, account_identifier),
             ).fetchone()
             record_password_reset_request(conn, user, account_identifier)
-            if user and gmail_reset_configured():
+            email_delivery_failed = False
+            if user and password_reset_email_configured():
                 token, expires_at = create_password_reset_token(conn, user["id"])
                 reset_url = build_password_reset_url(token)
-                send_password_reset_email(user, reset_url, expires_at)
-                log_event(
-                    conn,
-                    user["id"],
-                    user["role"],
-                    "Password Reset Email Sent",
-                    f"Password reset email was sent to {user['email']}.",
-                )
+                try:
+                    send_password_reset_email(user, reset_url, expires_at)
+                    log_event(
+                        conn,
+                        user["id"],
+                        user["role"],
+                        "Password Reset Email Sent",
+                        f"Password reset email was sent to {user['email']}.",
+                    )
+                except (smtplib.SMTPException, urllib.error.URLError, OSError, TimeoutError, RuntimeError) as email_error:
+                    email_delivery_failed = True
+                    app.logger.exception(
+                        "Password reset email failed for sender=%s recipient=%s: %s",
+                        get_email_sender() or get_gmail_sender(),
+                        user["email"],
+                        email_error,
+                    )
+                    conn.execute(
+                        "UPDATE password_reset_tokens SET used_at = ? WHERE token_hash = ?",
+                        (to_db_time(now()), password_reset_token_hash(token)),
+                    )
+                    log_event(
+                        conn,
+                        user["id"],
+                        user["role"],
+                        "Password Reset Email Failed",
+                        f"Password reset email could not be sent to {user['email']}. Check email provider settings.",
+                    )
                 conn.commit()
             broadcast_live_tracking_update(conn)
         except Exception:
             app.logger.exception("Password reset request could not be recorded.")
-            error_detail = "Email settings could not be verified. Check the Flask terminal for the Gmail SMTP error."
+            error_detail = "Email settings could not be verified. Check the Flask terminal for the email provider error."
             if app.config.get("TESTING") or app.debug:
                 import traceback
                 error_detail = traceback.format_exc().splitlines()[-1]
@@ -4357,10 +4629,12 @@ def forgot_password():
             if conn:
                 conn.close()
 
-        if user and gmail_reset_configured():
+        if user and password_reset_email_configured() and not email_delivery_failed:
             message = "If that account is registered, a password reset link has been sent to its email address."
+        elif user and email_delivery_failed:
+            message = "Your reset request was recorded, but the email could not be sent. Ask the administrator to check the email provider settings."
         elif user:
-            message = "Your request has been sent to the super administrator because Gmail email is not configured."
+            message = "Your request has been sent to the super administrator because password reset email is not configured."
         else:
             message = "If that account is registered, reset instructions will be sent or reviewed by the super administrator."
         return render_template("forgot_password.html", message=message)
@@ -4463,21 +4737,11 @@ def super_admin_dashboard():
             elif role not in {"super_admin", "admin", "driver", "conductor"}:
                 profile_notice = {"status": "error", "message": "Choose a valid role before creating an account."}
             else:
-                existing_user = conn.execute(
-                    "SELECT id, username, email FROM users WHERE username = ? OR email = ? LIMIT 1",
-                    (username, email),
-                ).fetchone()
+                existing_user = find_user_identity_conflict(conn, username, email)
                 if existing_user:
-                    duplicate_fields = []
-                    if str(existing_user["username"]).lower() == username.lower():
-                        duplicate_fields.append("username")
-                    if str(existing_user["email"]).lower() == email:
-                        duplicate_fields.append("email")
-                    if not duplicate_fields:
-                        duplicate_fields.append("username or email")
                     profile_notice = {
                         "status": "error",
-                        "message": f"Cannot create profile. The {' and '.join(duplicate_fields)} already exists.",
+                        "message": f"Cannot create profile. {describe_user_identity_conflict(existing_user, username, email)}",
                     }
                 else:
                     conn.execute(
@@ -4522,10 +4786,7 @@ def super_admin_dashboard():
             else:
                 user_id = int(user_id_raw)
                 user_row = conn.execute("SELECT id, full_name, role FROM users WHERE id = ?", (user_id,)).fetchone()
-                duplicate_user = conn.execute(
-                    "SELECT id, username, email FROM users WHERE (username = ? OR email = ?) AND id <> ? LIMIT 1",
-                    (username, email, user_id),
-                ).fetchone()
+                duplicate_user = find_user_identity_conflict(conn, username, email, user_id)
                 super_admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'super_admin'").fetchone()["total"]
                 admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").fetchone()["total"]
                 demotes_last_super_admin = user_row and user_row["role"] == "super_admin" and role != "super_admin" and super_admin_count <= 1
@@ -4533,16 +4794,9 @@ def super_admin_dashboard():
                 if not user_row:
                     profile_notice = {"status": "error", "message": "Cannot update profile. The selected account no longer exists."}
                 elif duplicate_user:
-                    duplicate_fields = []
-                    if str(duplicate_user["username"]).lower() == username.lower():
-                        duplicate_fields.append("username")
-                    if str(duplicate_user["email"]).lower() == email:
-                        duplicate_fields.append("email")
-                    if not duplicate_fields:
-                        duplicate_fields.append("username or email")
                     profile_notice = {
                         "status": "error",
-                        "message": f"Cannot update profile. The {' and '.join(duplicate_fields)} already belongs to another account.",
+                        "message": f"Cannot update profile. {describe_user_identity_conflict(duplicate_user, username, email)}",
                     }
                 elif demotes_last_super_admin:
                     profile_notice = {"status": "error", "message": "Cannot update profile. At least one super admin account must remain."}
@@ -5388,6 +5642,7 @@ def driver_location():
     payload = request.get_json(silent=True) or {}
     latitude = payload.get("latitude")
     longitude = payload.get("longitude")
+    accuracy = parse_gps_accuracy(payload.get("accuracy"))
 
     if latitude is None or longitude is None:
         conn.close()
@@ -5397,6 +5652,9 @@ def driver_location():
     if coordinate_error:
         conn.close()
         return jsonify({"error": coordinate_error}), 400
+    if accuracy is not None and accuracy > 250:
+        conn.close()
+        return jsonify({"error": f"GPS accuracy is low ({round(accuracy)} m). Wait for a better lock."}), 400
 
     current_stop_details = record_trip_gps_location(conn, trip, latitude, longitude, trip.get("conductor_id"))
     current_stop = (
@@ -5416,39 +5674,6 @@ def driver_location():
             "recorded_at": normalize_json_value(to_db_time(now())),
         }
     )
-
-
-@app.route("/conductor/location", methods=["POST"])
-@require_role("conductor")
-# Receive conductor GPS coordinates as a fallback live tracking source.
-def conductor_location():
-    """Receive conductor GPS coordinates as a fallback live tracking source."""
-    conn = get_db()
-    conductor_id = session["user_id"]
-    trip = get_active_trip_for_conductor(conn, conductor_id)
-
-    if not trip:
-        conn.close()
-        return jsonify({"error": "No active trip found."}), 400
-
-    payload = request.get_json(silent=True) or {}
-    latitude = payload.get("latitude")
-    longitude = payload.get("longitude")
-
-    if latitude is None or longitude is None:
-        conn.close()
-        return jsonify({"error": "Latitude and longitude are required."}), 400
-
-    latitude, longitude, coordinate_error = parse_gps_coordinates(latitude, longitude)
-    if coordinate_error:
-        conn.close()
-        return jsonify({"error": coordinate_error}), 400
-
-    record_trip_gps_location(conn, trip, latitude, longitude, conductor_id)
-    conn.commit()
-    broadcast_live_tracking_update(conn)
-    conn.close()
-    return jsonify({"success": True})
 
 
 @app.route("/conductor", methods=["GET", "POST"])
@@ -5673,13 +5898,15 @@ def conductor_live():
 
     latest_gps = get_latest_trip_gps(conn, trip["id"])
     if not latest_gps:
+        latest_record = get_latest_trip_record(conn, trip["id"])
+        current_stop = latest_record["stop_name"] if latest_record else "Waiting for GPS location"
         sidebar_payload = build_conductor_sidebar_payload(conn, conductor_id, trip, None)
         conn.close()
         return jsonify(
             {
                 "active": True,
                 "tracking": False,
-                "stop_name": "Waiting for GPS location",
+                "stop_name": current_stop,
                 "occupancy": int(trip.get("occupancy") or 0),
                 "capacity": int(trip.get("capacity") or DEFAULT_BUS_CAPACITY),
                 "sidebar": normalize_json_value(sidebar_payload),

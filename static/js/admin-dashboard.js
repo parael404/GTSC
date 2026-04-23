@@ -271,22 +271,28 @@
         return;
       }
 
-      const maxReportDate = reportStartDate.dataset.maxDate || reportEndDate.dataset.maxDate || '';
+      const maxDate = reportStartDate.dataset.maxDate || reportEndDate.dataset.maxDate || new Date().toISOString().slice(0, 10);
       reportEndDate.min = reportStartDate.value || '';
-      reportEndDate.max = maxReportDate;
-      reportStartDate.max = reportEndDate.value && (!maxReportDate || reportEndDate.value < maxReportDate)
+      reportEndDate.max = maxDate;
+      reportStartDate.max = reportEndDate.value && reportEndDate.value < maxDate
         ? reportEndDate.value
-        : maxReportDate;
+        : maxDate;
 
-      if (maxReportDate && reportStartDate.value && reportStartDate.value > maxReportDate) {
-        reportStartDate.value = maxReportDate;
+      if (reportStartDate.value && reportStartDate.value > maxDate) {
+        reportStartDate.value = maxDate;
       }
-      if (maxReportDate && reportEndDate.value && reportEndDate.value > maxReportDate) {
-        reportEndDate.value = maxReportDate;
+      if (reportEndDate.value && reportEndDate.value > maxDate) {
+        reportEndDate.value = maxDate;
       }
 
       if (reportStartDate.value && reportEndDate.value && reportEndDate.value < reportStartDate.value) {
         reportEndDate.value = reportStartDate.value;
+      }
+
+      reportEndDate.min = reportStartDate.value || '';
+      reportStartDate.max = reportEndDate.value || maxDate;
+      if (reportStartDate.max > maxDate) {
+        reportStartDate.max = maxDate;
       }
     }
 

@@ -2,7 +2,6 @@
     const ticketPrintContextNode = document.getElementById('conductorTicketPrintContext');
     const conductorLiveEndpoint = document.body.dataset.conductorLiveEndpoint || '';
     const conductorPanelsEndpoint = document.body.dataset.conductorPanelsEndpoint || '';
-    const conductorLocationEndpoint = document.body.dataset.conductorLocationEndpoint || '';
     const csrfHeaders = document.body.dataset.csrfToken ? { 'X-CSRFToken': document.body.dataset.csrfToken } : {};
     const ticketPrintContext = ticketPrintContextNode ? JSON.parse(ticketPrintContextNode.textContent || '{}') : {};
     const trackingStatus = document.getElementById('trackingStatus');
@@ -27,21 +26,18 @@
     const recentTicketList = document.getElementById('recentTicketList');
     const destinationButtons = Array.from(document.querySelectorAll('.destination-chip'));
     const passengerButtons = Array.from(document.querySelectorAll('.passenger-chip'));
-    const LOCATION_REFRESH_MS = 3000;
     const LIVE_STATUS_REFRESH_MS = 3000;
     const PANEL_REFRESH_MS = 1000;
-    const MIN_LOCATION_SEND_MS = 2500;
-    const GEO_OPTIONS = {
-      enableHighAccuracy: true,
-      maximumAge: 1000,
-      timeout: 5000
-    };
     let selectedDestinationButton = null;
     let selectedPassengerButton = null;
-    let conductorWatchId = null;
-    let conductorPollId = null;
-    let conductorLocationInFlight = false;
-    let lastConductorLocationSentAt = 0;
+    let lastStableStopLabel = currentStop ? currentStop.textContent.trim() : '';
+    let hasStableLiveStop = false;
+
+    function setTrackingText(message) {
+      if (trackingStatus && trackingStatus.textContent !== message) {
+        trackingStatus.textContent = message;
+      }
+    }
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -77,6 +73,21 @@
     function passengerTypeLabel(value) {
       const normalized = String(value || '').trim();
       return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : 'Regular';
+    }
+
+    function normalizeStopLabel(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    function isFallbackStopLabel(value) {
+      const normalized = normalizeStopLabel(value);
+      const routeStart = normalizeStopLabel(ticketPrintContext.routeStart);
+      return !normalized
+        || normalized.includes('waiting for')
+        || normalized.includes('route stop')
+        || normalized.includes('route start')
+        || normalized.includes('on route to')
+        || (routeStart && normalized === routeStart);
     }
 
     function renderSidebar(payload) {
@@ -551,17 +562,29 @@
       const shouldUpdateTrackingStatus = options.updateTrackingStatus !== false;
       const shouldUpdateGpsFields = options.updateGpsFields !== false;
       if (!payload.active) {
-        if (trackingStatus && shouldUpdateTrackingStatus) trackingStatus.textContent = 'No active trip';
+        if (shouldUpdateTrackingStatus) setTrackingText('No active trip');
         return;
       }
       if (trackingStatus && shouldUpdateTrackingStatus) {
-        trackingStatus.textContent = payload.tracking ? 'Live GPS active' : 'Waiting for GPS';
+        setTrackingText(payload.tracking ? 'Live GPS active' : 'Waiting for GPS lock');
       }
       const stopLabel = payload.stop_name || 'On route';
-      if (currentStop) currentStop.textContent = stopLabel;
-      if (currentCoords) currentCoords.textContent = stopLabel;
-      if (summaryOrigin) summaryOrigin.textContent = stopLabel;
-      if (originStopInput) originStopInput.value = stopLabel;
+      const isFallbackLabel = isFallbackStopLabel(stopLabel);
+      if (!isFallbackLabel || !lastStableStopLabel) {
+        lastStableStopLabel = stopLabel;
+      }
+      if (!isFallbackLabel) {
+        hasStableLiveStop = true;
+      }
+      const visibleStopLabel = isFallbackLabel && lastStableStopLabel ? lastStableStopLabel : stopLabel;
+      if (currentStop) currentStop.textContent = visibleStopLabel;
+      if (currentCoords) {
+        currentCoords.textContent = visibleStopLabel;
+      }
+      if (!isFallbackLabel || !hasStableLiveStop) {
+        if (summaryOrigin) summaryOrigin.textContent = visibleStopLabel;
+        if (originStopInput) originStopInput.value = visibleStopLabel;
+      }
       if (lastUpdate && shouldUpdateGpsFields) {
         lastUpdate.textContent = payload.recorded_at || 'No live update yet';
       }
@@ -592,67 +615,28 @@
       applyLivePayload(payload, { updateTrackingStatus: false, updateGpsFields: false });
     }
 
-    async function pushConductorLocation(latitude, longitude) {
-      if (!conductorLocationEndpoint) {
-        return { success: false };
-      }
-      const response = await fetch(conductorLocationEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...csrfHeaders
-        },
-        body: JSON.stringify({ latitude, longitude })
-      });
-      return response.json();
-    }
-
-    function startConductorGpsFallback() {
-      if (!navigator.geolocation || !conductorLocationEndpoint || conductorWatchId !== null) {
+    function connectDriverGpsSocket() {
+      if (typeof io !== 'function') {
         return;
       }
 
-      const handleConductorPosition = async (position) => {
-        const now = Date.now();
-        if (conductorLocationInFlight || now - lastConductorLocationSentAt < MIN_LOCATION_SEND_MS) {
-          return;
-        }
+      const socket = io({
+        transports: ['polling'],
+        reconnection: true
+      });
 
-        conductorLocationInFlight = true;
-        try {
-          const result = await pushConductorLocation(position.coords.latitude, position.coords.longitude);
-          if (result.success && trackingStatus) {
-            lastConductorLocationSentAt = Date.now();
-            trackingStatus.textContent = 'Live GPS active';
-          }
-        } catch (error) {
-          if (trackingStatus) trackingStatus.textContent = 'Conductor GPS standby';
-        } finally {
-          conductorLocationInFlight = false;
-        }
-      };
-
-      const handleConductorLocationError = () => {
-        if (trackingStatus) trackingStatus.textContent = 'Waiting for GPS permission';
-      };
-
-      const requestConductorPosition = () => {
-        navigator.geolocation.getCurrentPosition(handleConductorPosition, handleConductorLocationError, GEO_OPTIONS);
-      };
-
-      conductorWatchId = navigator.geolocation.watchPosition(handleConductorPosition, handleConductorLocationError, GEO_OPTIONS);
-      requestConductorPosition();
-      conductorPollId = setInterval(requestConductorPosition, LOCATION_REFRESH_MS);
+      socket.on('live_buses:update', () => {
+        refreshTripLocation().catch(() => {});
+        refreshConductorPanels().catch(() => {});
+      });
     }
 
     updateTicketSummary();
-    startConductorGpsFallback();
+    connectDriverGpsSocket();
     refreshTripLocation().catch(() => {
-      if (trackingStatus) trackingStatus.textContent = 'Waiting for GPS';
     });
     refreshConductorPanels().catch(() => {});
     setInterval(() => refreshTripLocation().catch(() => {
-      if (trackingStatus) trackingStatus.textContent = 'GPS refresh failed';
     }), LIVE_STATUS_REFRESH_MS);
     setInterval(() => refreshConductorPanels().catch(() => {}), PANEL_REFRESH_MS);
 })();

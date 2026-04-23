@@ -83,24 +83,6 @@ a {
   fill: currentColor;
 }
 
-.floating-theme-toggle {
-  position: fixed;
-  bottom: 22px;
-  left: 24px;
-  z-index: 4000;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
-}
-
-.sidebar-theme-toggle {
-  position: static;
-  box-shadow: none;
-}
-
-.sidebar-tool-row {
-  display: flex;
-  justify-content: flex-end;
-}
-
 .conductor-shell {
   max-width: 1440px;
   margin: 0 auto;
@@ -589,8 +571,7 @@ a {
   }
 
   .conductor-topbar {
-    flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
   }
 
   .destination-grid,
@@ -616,10 +597,6 @@ a {
     border-radius: 20px;
   }
 
-  .floating-theme-toggle {
-    left: 14px;
-    bottom: 14px;
-  }
 }
 
 @media (max-width: 560px) {

@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import app as app_module
+from connection import DBConnection
 
 
 app = app_module.app
@@ -45,6 +46,14 @@ class FakeConnection:
 
     def close(self):
         self.closed = True
+
+
+class FakeRawConnection:
+    def __init__(self):
+        self.rolled_back = False
+
+    def rollback(self):
+        self.rolled_back = True
 
 
 class SmokeTests(unittest.TestCase):
@@ -98,6 +107,35 @@ class SmokeTests(unittest.TestCase):
                 for query, params in fake_conn.queries
             )
         )
+
+    def test_db_connection_exposes_rollback(self):
+        raw_conn = FakeRawConnection()
+        DBConnection(raw_conn).rollback()
+        self.assertTrue(raw_conn.rolled_back)
+
+    @patch.dict(app_module.os.environ, {"GMAIL_USER": "sender@gmail.com", "GMAIL_APP_PASSWORD": "abcd efgh ijkl mnop"})
+    def test_gmail_app_password_spacing_is_normalized(self):
+        self.assertTrue(app_module.gmail_reset_configured())
+        self.assertEqual(app_module.get_gmail_app_password(), "abcdefghijklmnop")
+
+    @patch.dict(app_module.os.environ, {"RESEND_API_KEY": "re_test_key", "EMAIL_FROM": "Gajoda TSC <onboarding@resend.dev>"})
+    def test_resend_email_config_is_detected(self):
+        self.assertTrue(app_module.resend_reset_configured())
+        self.assertTrue(app_module.password_reset_email_configured())
+
+    def test_duplicate_profile_message_identifies_username_and_email(self):
+        conflict = {
+            "id": 2,
+            "username": "DriverOne",
+            "email": "driver@example.com",
+        }
+        message = app_module.describe_user_identity_conflict(conflict, "driverone", "DRIVER@example.com")
+        self.assertEqual(message, "That username and email are already used by another profile.")
+
+    def test_far_gps_point_does_not_snap_to_neeco_stop(self):
+        trip = {"route_name": app_module.FORWARD_ROUTE_NAME, "end_point": "Cabanatuan Terminal"}
+        label = app_module.derive_trip_location_label(trip, 15.3755, 120.9775)
+        self.assertNotEqual(label, "NEECO II - Area 2")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,8 @@ const MAX_USABLE_LOCATION_ACCURACY_METERS = 1500;
 const CACHED_LOCATION_MAX_AGE_MS = 60000;
 const CACHED_LOCATION_MAX_ACCURACY_METERS = 500;
 const LOCATION_SETTLE_MS = 6500;
+const PLANNER_STOP_SNAP_KM = 0.45;
+const MAX_USER_LOCATION_ACCURACY_METERS = 150;
 
 const mapElement = document.getElementById('map');
 const map = mapElement ? L.map('map').setView([15.37, 120.94], 10) : null;
@@ -544,8 +546,21 @@ async function applyUserPosition(position) {
       : `${coordinatesText}${accuracyText ? `, ${accuracyText}` : ''}`
   );
   const nearestStop = findNearestStopForCurrentLocation();
+  const isLowAccuracy = Number.isFinite(accuracy) && accuracy > MAX_USER_LOCATION_ACCURACY_METERS;
   if (applyCurrentLocationToPlanner && plannerOrigin && nearestStop && !isBroadLocation) {
     plannerOrigin.value = nearestStop.name;
+    updateUserLocationText(
+      isLowAccuracy
+        ? `Using nearest stop: ${nearestStop.name} (${nearestStop.distanceKm.toFixed(1)} km away, low GPS accuracy ${Math.round(accuracy)} m)`
+        : `Using nearest stop: ${nearestStop.name} (${nearestStop.distanceKm.toFixed(1)} km away)`
+    );
+    applyCurrentLocationToPlanner = false;
+  } else if (applyCurrentLocationToPlanner) {
+    updateUserLocationText(
+      isLowAccuracy
+        ? `Low GPS accuracy (${Math.round(accuracy)} m). Choose your origin stop manually.`
+        : 'Could not match your location to a route stop. Choose your origin stop manually.'
+    );
     applyCurrentLocationToPlanner = false;
   } else if (isBroadLocation) {
     applyCurrentLocationToPlanner = false;
@@ -721,7 +736,24 @@ function getStopDirectory() {
   return Array.isArray(commuterData.stopDirectory) ? commuterData.stopDirectory : [];
 }
 
-function findNearestStopForCurrentLocation() {
+function getChronologicalStopNames() {
+  const names = [];
+  const seen = new Set();
+  getRoutes().forEach((route) => {
+    (route.stops || []).forEach((stop) => {
+      const name = String(stop?.name || '').trim();
+      const key = stopNameKey(name);
+      if (!name || seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      names.push(name);
+    });
+  });
+  return names;
+}
+
+function findNearestStopForCurrentLocation(options = {}) {
   if (!userLocation) {
     return null;
   }
@@ -739,6 +771,27 @@ function findNearestStopForCurrentLocation() {
     }
   });
 
+  const maxDistance = options.allowDistant ? Number.POSITIVE_INFINITY : PLANNER_STOP_SNAP_KM;
+  if (!nearestStop || nearestDistance > maxDistance) {
+    return null;
+  }
+
+  return {
+    ...nearestStop,
+    distanceKm: nearestDistance
+  };
+}
+
+function applyNearestStopToPlanner(options = {}) {
+  if (!plannerOrigin) {
+    return null;
+  }
+  const nearestStop = findNearestStopForCurrentLocation(options);
+  if (!nearestStop) {
+    return null;
+  }
+  const matchedOrigin = getChronologicalStopNames().find((name) => stopNameKey(name) === stopNameKey(nearestStop.name));
+  plannerOrigin.value = matchedOrigin || nearestStop.name;
   return nearestStop;
 }
 
@@ -839,7 +892,31 @@ function getRouteSegmentFareTable(route, originName, destinationName, estimatedD
       senior: Math.round(Number(fareTable.senior) || 0)
     };
   }
+  const matrixFareTable = findMatrixFareTable(route, originName, destinationName);
+  if (matrixFareTable) {
+    return matrixFareTable;
+  }
   return estimateFareTable(estimatedDistanceKm, route.minimumFare, route.discountedFare);
+}
+
+function findMatrixFareTable(route, originName, destinationName) {
+  const rows = Array.isArray(route.fareMatrix) ? route.fareMatrix : [];
+  const match = rows.find((row) => (
+    stopNameKey(row.originStop) === stopNameKey(originName) &&
+    stopNameKey(row.destinationStop) === stopNameKey(destinationName)
+  ));
+  if (!match) {
+    return null;
+  }
+
+  const regular = Math.round(Number(match.regular) || 0);
+  const discounted = Math.round(Number(match.discounted) || regular);
+  return {
+    regular,
+    student: discounted,
+    pwd: discounted,
+    senior: discounted
+  };
 }
 
 function hasSpecificLandmark(stop) {
@@ -906,6 +983,8 @@ function findJourneyOptions(originName, destinationName) {
       0
     );
     const estimatedDistanceKm = estimateSegmentDistance(route, originStop, destinationStop);
+    const fareTable = findMatrixFareTable(route, originName, destinationName) ||
+      estimateFareTable(estimatedDistanceKm, route.minimumFare, route.discountedFare);
     const liveBuses = getRouteLiveBuses(route.routeName)
       .map((bus) => ({
         ...bus,
@@ -1047,14 +1126,15 @@ function renderRouteCards() {
 }
 
 function populateStopOptions() {
-  const stopNames = Array.isArray(commuterData.stopNames) ? commuterData.stopNames : [];
+  const stopNames = getChronologicalStopNames();
   const defaultRoute = getRoutes()[0];
 
   if (plannerOrigin && plannerOrigin.tagName === 'SELECT') {
     const currentOriginValue = plannerOrigin.value;
     plannerOrigin.innerHTML = `<option value="">Select origin</option>${stopNames.map((name) => `<option value="${name}">${name}</option>`).join('')}`;
-    if (currentOriginValue && stopNames.includes(currentOriginValue)) {
-      plannerOrigin.value = currentOriginValue;
+    const preservedOrigin = stopNames.find((name) => stopNameKey(name) === stopNameKey(currentOriginValue));
+    if (preservedOrigin) {
+      plannerOrigin.value = preservedOrigin;
     }
   }
 
@@ -1065,7 +1145,7 @@ function populateStopOptions() {
     const groupedOptions = getRoutes().map((route) => {
       const routeStops = (route.stops || [])
         .map((stop) => stop.name)
-        .filter((name) => destinationOptions.includes(name));
+        .filter((name) => destinationOptions.some((optionName) => stopNameKey(optionName) === stopNameKey(name)));
       if (!routeStops.length) {
         return '';
       }
@@ -1176,11 +1256,13 @@ if (useCurrentLocationBtn && plannerOrigin) {
       detectUserLocation({ precise: true });
       return;
     }
-    const nearestStop = findNearestStopForCurrentLocation();
+    const nearestStop = applyNearestStopToPlanner({ allowDistant: true });
     if (nearestStop) {
-      plannerOrigin.value = nearestStop.name;
       populateStopOptions();
       renderPlanner();
+      updateUserLocationText(`Using nearest stop: ${nearestStop.name} (${nearestStop.distanceKm.toFixed(1)} km away)`);
+    } else {
+      updateUserLocationText('Could not match your location to a route stop. Choose your origin stop manually.');
     }
     applyCurrentLocationToPlanner = false;
   });

@@ -600,6 +600,34 @@ table td {
   font-size: 1rem;
 }
 
+.profile-message-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+.profile-message {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.profile-message-success {
+  border-color: rgba(15, 118, 110, 0.32);
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--good);
+}
+
+.profile-message-error {
+  border-color: rgba(185, 28, 28, 0.32);
+  background: rgba(185, 28, 28, 0.1);
+  color: var(--hot);
+}
+
 .stats-grid,
 .charts-grid,
 .insights-grid,

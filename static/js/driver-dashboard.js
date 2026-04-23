@@ -13,15 +13,23 @@
     const currentStopDetail = document.getElementById('currentStopDetail');
     const LOCATION_REFRESH_MS = 3000;
     const MIN_LOCATION_SEND_MS = 2500;
+    const MAX_GPS_ACCURACY_METERS = 250;
     const GEO_OPTIONS = {
       enableHighAccuracy: true,
-      maximumAge: 1000,
-      timeout: 5000
+      maximumAge: 2000,
+      timeout: 6000
+    };
+    const RELAXED_GEO_OPTIONS = {
+      enableHighAccuracy: false,
+      maximumAge: 10000,
+      timeout: 6000
     };
     let watchId = null;
     let locationPollId = null;
     let locationPushInFlight = false;
     let lastLocationSentAt = 0;
+    let lastGpsStatusMessage = 'Last update: --';
+    let latestPosition = null;
 
     function parseServerTime(value) {
       if (!value) {
@@ -107,14 +115,19 @@
       setInterval(updateDuration, 1000);
     }
 
-    async function pushLocation(latitude, longitude) {
+    async function pushLocation(position) {
+      const coords = position.coords;
       const response = await fetch(driverEndpoints.driverLocationUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...csrfHeaders
         },
-        body: JSON.stringify({ latitude, longitude })
+        body: JSON.stringify({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy
+        })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -127,7 +140,7 @@
       if (!trackingStatus) return;
       trackingStatus.textContent = message;
       trackingStatus.classList.toggle('error', isError);
-      trackingStatus.classList.toggle('live', !isError && message.toLowerCase().includes('active'));
+      trackingStatus.classList.toggle('live', !isError);
       if (gpsState) {
         gpsState.textContent = isError ? 'GPS needs attention' : 'GPS running';
       }
@@ -141,15 +154,26 @@
         return 'Location permission is blocked. Allow location for this site, then retry GPS.';
       }
       if (error.code === error.POSITION_UNAVAILABLE) {
-        return 'GPS position is unavailable. Check device location settings and signal.';
+        return lastGpsStatusMessage;
       }
       if (error.code === error.TIMEOUT) {
-        return 'GPS timed out. Move near a window or outside, then retry GPS.';
+        return lastGpsStatusMessage;
       }
       return error.message || 'Location permission denied or unavailable.';
     }
 
-    async function handlePosition(position) {
+    function isRecoverableLocationError(error) {
+      return error && (
+        error.code === error.POSITION_UNAVAILABLE ||
+        error.code === error.TIMEOUT
+      );
+    }
+
+    async function sendLatestLocation() {
+      if (!latestPosition) {
+        return;
+      }
+
       const now = Date.now();
       if (locationPushInFlight || now - lastLocationSentAt < MIN_LOCATION_SEND_MS) {
         return;
@@ -157,11 +181,12 @@
 
       locationPushInFlight = true;
       try {
-        const result = await pushLocation(position.coords.latitude, position.coords.longitude);
+        const result = await pushLocation(latestPosition);
         if (result.success) {
           lastLocationSentAt = Date.now();
           const sentAt = new Date().toLocaleTimeString();
-          setTrackingStatus(`GPS active. Last update: ${sentAt}`);
+          lastGpsStatusMessage = `Last update: ${sentAt}`;
+          setTrackingStatus(lastGpsStatusMessage);
           if (gpsDetail) {
             gpsDetail.textContent = `Last GPS log: ${sentAt}`;
           }
@@ -181,6 +206,22 @@
       }
     }
 
+    function handlePosition(position) {
+      const accuracy = Number(position.coords.accuracy);
+      if (Number.isFinite(accuracy) && accuracy > MAX_GPS_ACCURACY_METERS) {
+        setTrackingStatus(`GPS accuracy is low (${Math.round(accuracy)} m). Waiting for a better lock.`, true);
+        if (gpsDetail) {
+          gpsDetail.textContent = 'Move near a window or outside before sending the next location.';
+        }
+        return;
+      }
+
+      latestPosition = position;
+      if (!lastLocationSentAt) {
+        sendLatestLocation();
+      }
+    }
+
     function stopTrackingWatch() {
       if (watchId !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchId);
@@ -193,6 +234,12 @@
     }
 
     function handleLocationError(error) {
+      if (isRecoverableLocationError(error)) {
+        setTrackingStatus(locationErrorMessage(error), false);
+        requestFallbackPosition();
+        return;
+      }
+
       stopTrackingWatch();
       setTrackingStatus(locationErrorMessage(error), true);
       if (trackingBtn) {
@@ -203,6 +250,15 @@
 
     function requestCurrentPosition() {
       navigator.geolocation.getCurrentPosition(handlePosition, handleLocationError, GEO_OPTIONS);
+    }
+
+    function requestFallbackPosition() {
+      navigator.geolocation.getCurrentPosition(handlePosition, () => {}, RELAXED_GEO_OPTIONS);
+    }
+
+    function refreshLocationLoop() {
+      requestCurrentPosition();
+      sendLatestLocation();
     }
 
     function startTracking() {
@@ -228,7 +284,7 @@
         GEO_OPTIONS
       );
       requestCurrentPosition();
-      locationPollId = setInterval(requestCurrentPosition, LOCATION_REFRESH_MS);
+      locationPollId = setInterval(refreshLocationLoop, LOCATION_REFRESH_MS);
     }
 
     if (!activeTrip && gpsState) {

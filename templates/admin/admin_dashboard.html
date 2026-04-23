@@ -1022,11 +1022,11 @@
             <div class="form-grid">
               <label>
                 <span>From</span>
-                <input type="date" name="report_start" id="reportStartDate" value="{{ overview.report_filters.start }}" max="{{ overview.report_filters.today }}" data-max-date="{{ overview.report_filters.today }}">
+                <input type="date" name="report_start" id="reportStartDate" value="{{ overview.report_filters.start }}" max="{{ overview.report_filters.max_date }}" data-max-date="{{ overview.report_filters.max_date }}">
               </label>
               <label>
                 <span>To</span>
-                <input type="date" name="report_end" id="reportEndDate" value="{{ overview.report_filters.end }}" max="{{ overview.report_filters.today }}" data-max-date="{{ overview.report_filters.today }}" {% if overview.report_filters.start %}min="{{ overview.report_filters.start }}"{% endif %}>
+                <input type="date" name="report_end" id="reportEndDate" value="{{ overview.report_filters.end }}" max="{{ overview.report_filters.max_date }}" data-max-date="{{ overview.report_filters.max_date }}" {% if overview.report_filters.start %}min="{{ overview.report_filters.start }}"{% endif %}>
               </label>
               <label>
                 <span>Export</span>
@@ -1040,6 +1040,9 @@
               <button type="submit" class="solid-button form-submit">{{ admin_icon('report') }}Apply Filter</button>
               <a href="{{ url_for('admin_dashboard', tab='reports') }}" class="ghost-button">Clear Filter</a>
             </div>
+            {% if overview.report_filters.error %}
+            <p class="section-copy">{{ overview.report_filters.error }}</p>
+            {% endif %}
           </form>
         </details>
 
@@ -1592,6 +1595,6 @@
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <script src="{{ url_for('static', filename='js/password-toggle.js') }}"></script>
   <script type="application/json" id="adminChartData">{{ overview.charts|tojson }}</script>
-  <script src="{{ url_for('static', filename='js/admin-dashboard.js') }}?v=polling-socket-1"></script>
+  <script src="{{ url_for('static', filename='js/admin-dashboard.js') }}?v=date-validation-1"></script>
 </body>
 </html>
