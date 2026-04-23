@@ -354,15 +354,27 @@ def parse_iso_date(value):
 
 
 def resolve_report_date_range(start_value=None, end_value=None):
-    """Normalize optional report date filters into ordered ISO date strings."""
+    """Normalize optional report date filters into valid ISO date strings."""
     start_date = parse_iso_date(start_value)
     end_date = parse_iso_date(end_value)
+    max_date = now().date()
+    errors = []
+    if start_date and start_date > max_date:
+        errors.append(f"From date cannot be later than {max_date.isoformat()}.")
+        start_date = max_date
+    if end_date and end_date > max_date:
+        errors.append(f"To date cannot be later than {max_date.isoformat()}.")
+        end_date = max_date
     if start_date and end_date and start_date > end_date:
-        start_date, end_date = end_date, start_date
+        errors.append("From date cannot be later than To date.")
+        end_date = start_date
     return {
         "start": start_date.isoformat() if start_date else "",
         "end": end_date.isoformat() if end_date else "",
         "is_filtered": bool(start_date or end_date),
+        "max_date": max_date.isoformat(),
+        "errors": errors,
+        "error": " ".join(errors),
     }
 
 
@@ -5350,11 +5362,18 @@ def api_admin_bus_cameras(bus_id):
 # Download the current admin analytics report as a PDF file.
 def admin_report():
     """Download the current admin analytics report as a PDF file."""
+    report_filters = resolve_report_date_range(
+        request.args.get("report_start"),
+        request.args.get("report_end"),
+    )
+    if report_filters["errors"]:
+        abort(400, description=report_filters["error"])
+
     conn = get_db()
     overview = build_admin_overview(
         conn,
-        request.args.get("report_start"),
-        request.args.get("report_end"),
+        report_filters["start"],
+        report_filters["end"],
     )
     conn.close()
 
@@ -5536,7 +5555,7 @@ def driver_location():
     if coordinate_error:
         conn.close()
         return jsonify({"error": coordinate_error}), 400
-    if accuracy is not None and accuracy > 150:
+    if accuracy is not None and accuracy > 250:
         conn.close()
         return jsonify({"error": f"GPS accuracy is low ({round(accuracy)} m). Wait for a better lock."}), 400
 

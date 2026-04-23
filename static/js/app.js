@@ -982,7 +982,7 @@ function connectLiveTrackingSocket() {
   }
 
   const socket = io({
-    transports: ['websocket', 'polling'],
+    transports: ['polling'],
     reconnection: true
   });
 

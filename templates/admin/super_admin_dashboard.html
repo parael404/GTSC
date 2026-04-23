@@ -361,13 +361,6 @@
       document.querySelectorAll('[data-target]').forEach((button) => {
         button.addEventListener('click', () => showSection(button.dataset.target));
       });
-      document.querySelectorAll('[data-confirm]').forEach((element) => {
-        element.addEventListener('click', (event) => {
-          if (!window.confirm(element.dataset.confirm)) {
-            event.preventDefault();
-          }
-        });
-      });
 
       showSection(initialTab);
     })();

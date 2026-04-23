@@ -31,6 +31,7 @@
     let selectedDestinationButton = null;
     let selectedPassengerButton = null;
     let lastStableStopLabel = currentStop ? currentStop.textContent.trim() : '';
+    let hasStableLiveStop = false;
 
     function setTrackingText(message) {
       if (trackingStatus && trackingStatus.textContent !== message) {
@@ -72,6 +73,21 @@
     function passengerTypeLabel(value) {
       const normalized = String(value || '').trim();
       return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : 'Regular';
+    }
+
+    function normalizeStopLabel(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    function isFallbackStopLabel(value) {
+      const normalized = normalizeStopLabel(value);
+      const routeStart = normalizeStopLabel(ticketPrintContext.routeStart);
+      return !normalized
+        || normalized.includes('waiting for')
+        || normalized.includes('route stop')
+        || normalized.includes('route start')
+        || normalized.includes('on route to')
+        || (routeStart && normalized === routeStart);
     }
 
     function renderSidebar(payload) {
@@ -553,17 +569,22 @@
         setTrackingText(payload.tracking ? 'Live GPS active' : 'Waiting for GPS lock');
       }
       const stopLabel = payload.stop_name || 'On route';
-      const isWaitingLabel = stopLabel.toLowerCase().includes('waiting for gps');
-      if (!isWaitingLabel || !lastStableStopLabel) {
+      const isFallbackLabel = isFallbackStopLabel(stopLabel);
+      if (!isFallbackLabel || !lastStableStopLabel) {
         lastStableStopLabel = stopLabel;
       }
-      const visibleStopLabel = isWaitingLabel && lastStableStopLabel ? lastStableStopLabel : stopLabel;
+      if (!isFallbackLabel) {
+        hasStableLiveStop = true;
+      }
+      const visibleStopLabel = isFallbackLabel && lastStableStopLabel ? lastStableStopLabel : stopLabel;
       if (currentStop) currentStop.textContent = visibleStopLabel;
       if (currentCoords) {
         currentCoords.textContent = visibleStopLabel;
       }
-      if (summaryOrigin) summaryOrigin.textContent = visibleStopLabel;
-      if (originStopInput) originStopInput.value = visibleStopLabel;
+      if (!isFallbackLabel || !hasStableLiveStop) {
+        if (summaryOrigin) summaryOrigin.textContent = visibleStopLabel;
+        if (originStopInput) originStopInput.value = visibleStopLabel;
+      }
       if (lastUpdate && shouldUpdateGpsFields) {
         lastUpdate.textContent = payload.recorded_at || 'No live update yet';
       }
@@ -600,7 +621,7 @@
       }
 
       const socket = io({
-        transports: ['websocket', 'polling'],
+        transports: ['polling'],
         reconnection: true
       });
 

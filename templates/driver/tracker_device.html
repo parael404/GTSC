@@ -145,6 +145,6 @@
 
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <script type="application/json" id="trackerActiveTripData">{{ overview.active_trip|tojson }}</script>
-  <script src="{{ url_for('static', filename='js/tracker-device.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/tracker-device.js') }}?v=gps-realtime-1"></script>
 </body>
 </html>

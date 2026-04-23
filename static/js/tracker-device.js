@@ -20,16 +20,23 @@
     const wakeLockValue = document.getElementById('wakeLockValue');
     const LOCATION_REFRESH_MS = 3000;
     const MIN_LOCATION_SEND_MS = 2500;
-    const MAX_GPS_ACCURACY_METERS = 150;
+    const MAX_GPS_ACCURACY_METERS = 250;
     const GEO_OPTIONS = {
       enableHighAccuracy: true,
-      maximumAge: 1000,
-      timeout: 5000
+      maximumAge: 2000,
+      timeout: 6000
+    };
+    const RELAXED_GEO_OPTIONS = {
+      enableHighAccuracy: false,
+      maximumAge: 10000,
+      timeout: 6000
     };
     let watchId = null;
     let locationPollId = null;
     let locationPushInFlight = false;
     let lastLocationSentAt = 0;
+    let lastGpsStatusMessage = 'Last update: --';
+    let latestPosition = null;
     let wakeLock = null;
 
     function parseServerTime(value) {
@@ -54,7 +61,7 @@
       if (trackingStatus) {
         trackingStatus.textContent = message;
         trackingStatus.classList.toggle('error', isError);
-        trackingStatus.classList.toggle('live', !isError && message.toLowerCase().includes('gps active'));
+        trackingStatus.classList.toggle('live', !isError);
       }
       if (gpsStateLabel) {
         gpsStateLabel.textContent = isError ? 'GPS needs attention' : 'GPS running';
@@ -72,12 +79,19 @@
         return 'Location permission is blocked. Allow location for this site, then press Enable GPS.';
       }
       if (error.code === error.POSITION_UNAVAILABLE) {
-        return 'GPS position is unavailable. Check device location settings and signal.';
+        return lastGpsStatusMessage;
       }
       if (error.code === error.TIMEOUT) {
-        return 'GPS timed out. Move near a window or outside, then press Enable GPS.';
+        return lastGpsStatusMessage;
       }
       return error.message || 'Location permission denied or GPS unavailable.';
+    }
+
+    function isRecoverableLocationError(error) {
+      return error && (
+        error.code === error.POSITION_UNAVAILABLE ||
+        error.code === error.TIMEOUT
+      );
     }
 
     function updateTelemetry(position) {
@@ -152,6 +166,12 @@
     }
 
     function handleLocationError(error) {
+      if (isRecoverableLocationError(error)) {
+        setTrackingStatus(locationErrorMessage(error), false);
+        requestFallbackPosition();
+        return;
+      }
+
       stopTrackingWatch();
       setTrackingStatus(locationErrorMessage(error), true);
       if (trackingBtn) {
@@ -160,14 +180,10 @@
       }
     }
 
-    async function handlePosition(position) {
-      updateTelemetry(position);
-      const accuracy = Number(position.coords.accuracy);
-      if (Number.isFinite(accuracy) && accuracy > MAX_GPS_ACCURACY_METERS) {
-        setTrackingStatus(`GPS accuracy is low (${Math.round(accuracy)} m). Waiting for a better lock.`, true);
+    async function sendLatestLocation() {
+      if (!latestPosition) {
         return;
       }
-
       const now = Date.now();
       if (locationPushInFlight || now - lastLocationSentAt < MIN_LOCATION_SEND_MS) {
         return;
@@ -175,12 +191,13 @@
 
       locationPushInFlight = true;
       try {
-        const result = await pushLocation(position);
+        const result = await pushLocation(latestPosition);
         if (result.success) {
           lastLocationSentAt = Date.now();
           const sentAt = new Date().toLocaleTimeString();
           if (lastSentValue) lastSentValue.textContent = sentAt;
-          setTrackingStatus(`GPS active. Last update sent at ${sentAt}.`);
+          lastGpsStatusMessage = `Last update: ${sentAt}`;
+          setTrackingStatus(lastGpsStatusMessage);
         } else {
           setTrackingStatus(result.error || 'Location update failed.', true);
         }
@@ -191,8 +208,31 @@
       }
     }
 
+    function handlePosition(position) {
+      updateTelemetry(position);
+      const accuracy = Number(position.coords.accuracy);
+      if (Number.isFinite(accuracy) && accuracy > MAX_GPS_ACCURACY_METERS) {
+        setTrackingStatus(`GPS accuracy is low (${Math.round(accuracy)} m). Waiting for a better lock.`, true);
+        return;
+      }
+
+      latestPosition = position;
+      if (!lastLocationSentAt) {
+        sendLatestLocation();
+      }
+    }
+
     function requestCurrentPosition() {
       navigator.geolocation.getCurrentPosition(handlePosition, handleLocationError, GEO_OPTIONS);
+    }
+
+    function requestFallbackPosition() {
+      navigator.geolocation.getCurrentPosition(handlePosition, () => {}, RELAXED_GEO_OPTIONS);
+    }
+
+    function refreshLocationLoop() {
+      requestCurrentPosition();
+      sendLatestLocation();
     }
 
     function startTracking() {
@@ -202,7 +242,7 @@
       }
 
       if (watchId !== null) {
-        setTrackingStatus('GPS active. Waiting for the next location refresh.');
+        setTrackingStatus(lastGpsStatusMessage);
         return;
       }
 
@@ -220,7 +260,7 @@
         GEO_OPTIONS
       );
       requestCurrentPosition();
-      locationPollId = setInterval(requestCurrentPosition, LOCATION_REFRESH_MS);
+      locationPollId = setInterval(refreshLocationLoop, LOCATION_REFRESH_MS);
     }
 
     if (startTripForm) {
