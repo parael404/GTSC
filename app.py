@@ -35,8 +35,6 @@ from connection import bootstrap_db, get_db
 
 app = Flask(__name__)
 
-bootstrap_db()
-
 
 def seed_initial_accounts():
     conn = get_db()
@@ -4454,6 +4452,12 @@ def initialize_database():
 
 if os.environ.get("CODEXMBS_BOOTSTRAP_ON_IMPORT", "").lower() in {"1", "true", "yes"}:
     initialize_database()
+
+
+@app.route("/health")
+def health_check():
+    """Return a lightweight health response without database access."""
+    return jsonify({"status": "ok"}), 200
 
 
 @app.after_request
