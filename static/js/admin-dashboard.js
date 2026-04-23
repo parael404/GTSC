@@ -22,6 +22,8 @@
     const reportEndDate = document.getElementById('reportEndDate');
     const operationNotificationSummary = document.getElementById('operationNotificationSummary');
     const operationNotificationList = document.getElementById('operationNotificationList');
+    const operationArchiveSummary = document.getElementById('operationArchiveSummary');
+    const operationArchiveList = document.getElementById('operationArchiveList');
 
     function markerColor(level) {
       if (level === 'High') return '#dc2626';
@@ -269,8 +271,19 @@
         return;
       }
 
+      const maxReportDate = reportStartDate.dataset.maxDate || reportEndDate.dataset.maxDate || '';
       reportEndDate.min = reportStartDate.value || '';
-      reportStartDate.max = reportEndDate.value || '';
+      reportEndDate.max = maxReportDate;
+      reportStartDate.max = reportEndDate.value && (!maxReportDate || reportEndDate.value < maxReportDate)
+        ? reportEndDate.value
+        : maxReportDate;
+
+      if (maxReportDate && reportStartDate.value && reportStartDate.value > maxReportDate) {
+        reportStartDate.value = maxReportDate;
+      }
+      if (maxReportDate && reportEndDate.value && reportEndDate.value > maxReportDate) {
+        reportEndDate.value = maxReportDate;
+      }
 
       if (reportStartDate.value && reportEndDate.value && reportEndDate.value < reportStartDate.value) {
         reportEndDate.value = reportStartDate.value;
@@ -436,6 +449,12 @@
           ${bus.passengers}/${bus.capacity} passengers<br>
           ${bus.driver}
         `);
+        marker.bindTooltip(String(bus.id || bus.plate_number || 'Bus'), {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -18],
+          className: 'bus-name-tooltip'
+        });
         bounds.push([Number(bus.lat), Number(bus.lng)]);
       });
 
@@ -813,7 +832,7 @@
       }
 
       const rows = Array.isArray(notifications) ? notifications : [];
-      operationNotificationSummary.textContent = `${rows.length} unread event${rows.length === 1 ? '' : 's'}`;
+      operationNotificationSummary.textContent = `${rows.length} latest unread event${rows.length === 1 ? '' : 's'}`;
       operationNotificationList.innerHTML = rows.length
         ? rows.map((notification) => `
           <article class="alert-admin-item severity-${operationSeverity(notification.notification_type)}">
@@ -832,6 +851,26 @@
           </article>
         `).join('')
         : '<p class="section-copy">No operations notifications right now.</p>';
+    }
+
+    function renderOperationArchive(notifications) {
+      if (!operationArchiveList || !operationArchiveSummary) {
+        return;
+      }
+
+      const rows = Array.isArray(notifications) ? notifications : [];
+      operationArchiveSummary.textContent = `${rows.length} archived event${rows.length === 1 ? '' : 's'}`;
+      operationArchiveList.innerHTML = rows.length
+        ? rows.map((notification) => `
+          <article class="alert-admin-item severity-${operationSeverity(notification.notification_type)}">
+            <div>
+              <strong>${escapeHtml(notification.title || 'Operations notification')}</strong>
+              <span>${escapeHtml(notification.created_at)} / ${escapeHtml(String(notification.notification_type || 'event').replaceAll('_', ' '))}</span>
+              <p>${escapeHtml(notification.description || '')}</p>
+            </div>
+          </article>
+        `).join('')
+        : '<p class="section-copy">No archived operations notifications yet.</p>';
     }
 
     async function refreshAdminLive() {
@@ -855,6 +894,7 @@
       renderAdminMap();
       renderPasswordResetNotice(payload.password_reset_alerts);
       renderOperationNotifications(payload.operation_notifications);
+      renderOperationArchive(payload.archived_operation_notifications);
     }
 
     function connectAdminLiveSocket() {

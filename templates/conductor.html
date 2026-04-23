@@ -15,9 +15,6 @@
   data-conductor-location-endpoint="{{ url_for('conductor_location') }}"
   data-csrf-token="{{ csrf_token() }}"
 >
-  {% if not overview.active_trip %}
-  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
-  {% endif %}
   <div class="conductor-shell">
     <header class="conductor-topbar">
       <div>
@@ -29,7 +26,10 @@
           </div>
         </div>
         <p class="eyebrow">Conductor Terminal</p>
-        <h1>Boarding ticket terminal</h1>
+        <div class="conductor-name-row">
+          <h1>{{ overview.conductor.full_name }}</h1>
+          <button type="button" class="theme-toggle header-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+        </div>
       </div>
     </header>
 
@@ -140,7 +140,6 @@
                 <p><strong>Fare:</strong> <span id="summaryFare">PHP 0</span></p>
               </div>
               <div class="action-bar">
-                <button type="button" class="secondary preview-button" id="previewMockButton" disabled>Preview Receipt</button>
                 <button type="submit" class="primary update-button" id="saveMockButton" disabled>Save + Print Ticket</button>
               </div>
             </section>
@@ -159,9 +158,6 @@
         </section>
 
         <aside class="terminal-sidebar slim-sidebar">
-          <div class="sidebar-tool-row">
-            <button type="button" class="theme-toggle sidebar-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
-          </div>
           <section class="summary-card compact-card">
             <h3>Trip Info</h3>
             <div class="summary-list">

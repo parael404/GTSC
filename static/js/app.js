@@ -5,9 +5,17 @@ let userMarkerLayer = null;
 let applyCurrentLocationToPlanner = false;
 let hasSetInitialMapView = false;
 let shouldFocusUserLocation = false;
+let locationWatchId = null;
+let locationRequestId = 0;
+let userLocationRenderId = 0;
 const LIVE_TRACKING_REFRESH_MS = 3000;
 const COMMUTER_DATA_REFRESH_MS = 10000;
 const FALLBACK_BUS_SPEED_KPH = 24;
+const TARGET_LOCATION_ACCURACY_METERS = 60;
+const MAX_USABLE_LOCATION_ACCURACY_METERS = 1500;
+const CACHED_LOCATION_MAX_AGE_MS = 60000;
+const CACHED_LOCATION_MAX_ACCURACY_METERS = 500;
+const LOCATION_SETTLE_MS = 6500;
 
 const mapElement = document.getElementById('map');
 const map = mapElement ? L.map('map').setView([15.37, 120.94], 10) : null;
@@ -143,9 +151,13 @@ function addLayer(layer) {
   return layer;
 }
 
+function isActiveLiveBus(bus) {
+  return bus && bus.status === 'online' && bus.tripStatus === 'active' && bus.isLiveTracked;
+}
+
 function summarizeBuses(items) {
   const onlineBuses = items.filter((bus) => bus.status === 'online');
-  const liveTrackedBuses = onlineBuses.filter((bus) => bus.tripStatus === 'active' && bus.isLiveTracked);
+  const liveTrackedBuses = onlineBuses.filter(isActiveLiveBus);
   const counts = { Low: 0, Medium: 0, High: 0 };
   let totalLoad = 0;
 
@@ -354,7 +366,7 @@ function renderMap() {
   }
   clearMapLayers();
 
-  const sortedBuses = getSortedBuses();
+  const sortedBuses = getSortedBuses().filter(isActiveLiveBus);
   const bounds = [];
 
   if (userLocation) {
@@ -397,6 +409,12 @@ function renderMap() {
       ${bus.nextStop}<br>
       Arrival: ${renderBusArrivalEstimate(bus)}
     `);
+    marker.bindTooltip(String(bus.id || 'Bus'), {
+      permanent: true,
+      direction: 'top',
+      offset: [0, -18],
+      className: 'bus-name-tooltip'
+    });
     bounds.push([markerLat, markerLng]);
   });
 
@@ -413,6 +431,62 @@ function updateUserLocationText(text) {
   if (userLocationText) {
     userLocationText.textContent = text;
   }
+}
+
+function formatLocationAccuracy(accuracy) {
+  const value = Number(accuracy);
+  if (!Number.isFinite(value)) {
+    return '';
+  }
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)} km`;
+  }
+  return `${Math.round(value)}m`;
+}
+
+function isUsableLocationAccuracy(accuracy) {
+  return !Number.isFinite(Number(accuracy)) || Number(accuracy) <= MAX_USABLE_LOCATION_ACCURACY_METERS;
+}
+
+function isBroadLocationAccuracy(accuracy) {
+  return Number.isFinite(Number(accuracy)) && Number(accuracy) > MAX_USABLE_LOCATION_ACCURACY_METERS;
+}
+
+function getPositionAccuracy(position) {
+  return Number(position?.coords?.accuracy);
+}
+
+function getPositionAgeMs(position) {
+  const timestamp = Number(position?.timestamp);
+  return Number.isFinite(timestamp) ? Math.max(Date.now() - timestamp, 0) : Number.POSITIVE_INFINITY;
+}
+
+function isGoodCachedPosition(position) {
+  const accuracy = getPositionAccuracy(position);
+  return (
+    getPositionAgeMs(position) <= CACHED_LOCATION_MAX_AGE_MS &&
+    Number.isFinite(accuracy) &&
+    accuracy <= CACHED_LOCATION_MAX_ACCURACY_METERS
+  );
+}
+
+function shouldApplyPosition(position) {
+  const candidateAccuracy = getPositionAccuracy(position);
+  if (!userLocation) {
+    return true;
+  }
+
+  const currentAccuracy = Number(userLocation.accuracy);
+  if (!Number.isFinite(candidateAccuracy)) {
+    return false;
+  }
+  if (!Number.isFinite(currentAccuracy)) {
+    return true;
+  }
+  if (isBroadLocationAccuracy(candidateAccuracy) && !isBroadLocationAccuracy(currentAccuracy)) {
+    return false;
+  }
+  return candidateAccuracy <= currentAccuracy || candidateAccuracy <= TARGET_LOCATION_ACCURACY_METERS;
 }
 
 async function resolveLocationName(lat, lng) {
@@ -442,7 +516,74 @@ async function resolveLocationName(lat, lng) {
   }
 }
 
-function detectUserLocation() {
+async function applyUserPosition(position) {
+  const accuracy = Number(position.coords.accuracy);
+  if (!shouldApplyPosition(position)) {
+    return;
+  }
+
+  const isBroadLocation = isBroadLocationAccuracy(accuracy);
+  const renderId = ++userLocationRenderId;
+  userLocation = {
+    lat: position.coords.latitude,
+    lng: position.coords.longitude,
+    accuracy: Number.isFinite(accuracy) ? accuracy : null
+  };
+  updateUserLocationText('Detecting your city...');
+  const locationName = await resolveLocationName(userLocation.lat, userLocation.lng);
+  if (renderId !== userLocationRenderId) {
+    return;
+  }
+  const accuracyText = userLocation.accuracy
+    ? `accuracy about ${formatLocationAccuracy(userLocation.accuracy)}`
+    : '';
+  const coordinatesText = `${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`;
+  updateUserLocationText(
+    locationName
+      ? `${locationName}${accuracyText && !isBroadLocation ? ` (${accuracyText})` : ''}`
+      : `${coordinatesText}${accuracyText ? `, ${accuracyText}` : ''}`
+  );
+  const nearestStop = findNearestStopForCurrentLocation();
+  if (applyCurrentLocationToPlanner && plannerOrigin && nearestStop && !isBroadLocation) {
+    plannerOrigin.value = nearestStop.name;
+    applyCurrentLocationToPlanner = false;
+  } else if (isBroadLocation) {
+    applyCurrentLocationToPlanner = false;
+  }
+  populateStopOptions();
+  renderBusList();
+  renderMap();
+  renderPlanner();
+  if (map && shouldFocusUserLocation) {
+    map.setView([userLocation.lat, userLocation.lng], isBroadLocation ? 13 : userLocation.accuracy && userLocation.accuracy > 120 ? 14 : 16);
+    shouldFocusUserLocation = false;
+  }
+  setTimeout(focusUserMarker, 120);
+}
+
+function isBetterPosition(candidate, currentBest) {
+  if (!currentBest) {
+    return true;
+  }
+  const candidateAccuracy = Number(candidate.coords.accuracy);
+  const bestAccuracy = Number(currentBest.coords.accuracy);
+  if (!Number.isFinite(candidateAccuracy)) {
+    return false;
+  }
+  if (!Number.isFinite(bestAccuracy)) {
+    return true;
+  }
+  return candidateAccuracy < bestAccuracy;
+}
+
+function clearLocationWatch() {
+  if (locationWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(locationWatchId);
+    locationWatchId = null;
+  }
+}
+
+function detectUserLocation(options = {}) {
   if (!navigator.geolocation) {
     updateUserLocationText('Location is not available on this device');
     renderBusList();
@@ -450,41 +591,122 @@ function detectUserLocation() {
     return;
   }
 
-  navigator.geolocation.getCurrentPosition(
-    async (position) => {
-      userLocation = {
-        lat: position.coords.latitude,
-        lng: position.coords.longitude
-      };
-      updateUserLocationText('Detecting your city...');
-      const locationName = await resolveLocationName(userLocation.lat, userLocation.lng);
-      updateUserLocationText(locationName || `${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`);
-      const nearestStop = findNearestStopForCurrentLocation();
-      if (applyCurrentLocationToPlanner && plannerOrigin && nearestStop) {
-        plannerOrigin.value = nearestStop.name;
-        applyCurrentLocationToPlanner = false;
+  clearLocationWatch();
+  const requestId = ++locationRequestId;
+  if (options.precise) {
+    updateUserLocationText('Detecting your location...');
+    userLocation = null;
+    userMarkerLayer = null;
+    renderBusList();
+    renderMap();
+    renderPlanner();
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (requestId !== locationRequestId) {
+          return;
+        }
+        applyUserPosition(position);
+      },
+      (error) => {
+        if (requestId !== locationRequestId) {
+          return;
+        }
+        updateUserLocationText(error && error.code === 1 ? 'Location permission denied' : 'Location unavailable');
+        renderBusList();
+        renderMap();
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 10000,
+        timeout: 10000
       }
-      populateStopOptions();
-      renderBusList();
-      renderMap();
-      renderPlanner();
-      if (map && shouldFocusUserLocation) {
-        map.setView([userLocation.lat, userLocation.lng], 15);
-        shouldFocusUserLocation = false;
+    );
+    return;
+  }
+
+  const settleMs = options.precise ? LOCATION_SETTLE_MS : 3500;
+  let bestPosition = null;
+  let finished = false;
+  let displayedFirstPosition = false;
+
+  updateUserLocationText('Detecting your location...');
+
+  const handlePosition = (position) => {
+    if (requestId !== locationRequestId || finished) {
+      return;
+    }
+    if (isBetterPosition(position, bestPosition)) {
+      bestPosition = position;
+    }
+    const accuracy = Number(position.coords.accuracy);
+    if (Number.isFinite(accuracy)) {
+      updateUserLocationText(
+        isBroadLocationAccuracy(accuracy)
+          ? 'Finding your city...'
+          : `Improving GPS accuracy... about ${Math.round(accuracy)}m`
+      );
+    }
+    if (!displayedFirstPosition || shouldApplyPosition(position)) {
+      displayedFirstPosition = true;
+      applyUserPosition(position);
+    }
+    if (Number.isFinite(accuracy) && accuracy <= TARGET_LOCATION_ACCURACY_METERS) {
+      finishWithBest();
+    }
+  };
+
+  const finishWithBest = () => {
+    if (finished || requestId !== locationRequestId) {
+      return;
+    }
+    finished = true;
+    clearLocationWatch();
+    if (bestPosition) {
+      applyUserPosition(bestPosition);
+      return;
+    }
+    updateUserLocationText('Location unavailable');
+    renderBusList();
+    renderMap();
+  };
+
+  if (!options.precise) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (isGoodCachedPosition(position)) {
+          handlePosition(position);
+        }
+      },
+      () => {},
+      {
+        enableHighAccuracy: false,
+        maximumAge: CACHED_LOCATION_MAX_AGE_MS,
+        timeout: 1500
       }
-      setTimeout(focusUserMarker, 120);
-    },
-    () => {
-      updateUserLocationText('Location permission denied');
+    );
+  }
+
+  locationWatchId = navigator.geolocation.watchPosition(
+    handlePosition,
+    (error) => {
+      if (bestPosition) {
+        finishWithBest();
+        return;
+      }
+      finished = true;
+      clearLocationWatch();
+      updateUserLocationText(error && error.code === 1 ? 'Location permission denied' : 'Location unavailable');
       renderBusList();
       renderMap();
     },
     {
       enableHighAccuracy: true,
-      maximumAge: 10000,
-      timeout: 10000
+      maximumAge: options.precise ? 0 : 5000,
+      timeout: settleMs + 2500
     }
   );
+  setTimeout(finishWithBest, settleMs);
 }
 
 function stopNameKey(value) {
@@ -600,6 +822,26 @@ function estimateFareTable(distanceKmValue, minimumFare = 15, discountedFare = 1
   };
 }
 
+function fareSegmentKey(originName, destinationName) {
+  return `${stopNameKey(originName)}|${stopNameKey(destinationName)}`;
+}
+
+function getRouteSegmentFareTable(route, originName, destinationName, estimatedDistanceKm) {
+  const segmentFares = route && route.segmentFares && typeof route.segmentFares === 'object'
+    ? route.segmentFares
+    : {};
+  const fareTable = segmentFares[fareSegmentKey(originName, destinationName)];
+  if (fareTable && typeof fareTable === 'object') {
+    return {
+      regular: Math.round(Number(fareTable.regular) || 0),
+      student: Math.round(Number(fareTable.student) || 0),
+      pwd: Math.round(Number(fareTable.pwd) || 0),
+      senior: Math.round(Number(fareTable.senior) || 0)
+    };
+  }
+  return estimateFareTable(estimatedDistanceKm, route.minimumFare, route.discountedFare);
+}
+
 function hasSpecificLandmark(stop) {
   const landmark = String(stop?.landmark || '').trim();
   if (!landmark) {
@@ -680,7 +922,7 @@ function findJourneyOptions(originName, destinationName) {
       destinationStop,
       estimatedMinutes,
       estimatedDistanceKm,
-      fareTable: estimateFareTable(estimatedDistanceKm, route.minimumFare, route.discountedFare),
+      fareTable: getRouteSegmentFareTable(route, originStop.name, destinationStop.name, estimatedDistanceKm),
       liveBuses,
       nextBus: liveBuses[0] || null
     });
@@ -910,8 +1152,7 @@ if (sortSelect) {
 if (locateMeBtn) {
   locateMeBtn.addEventListener('click', () => {
     shouldFocusUserLocation = true;
-    detectUserLocation();
-    setTimeout(focusUserMarker, 800);
+    detectUserLocation({ precise: true });
   });
 }
 
@@ -932,7 +1173,7 @@ if (useCurrentLocationBtn && plannerOrigin) {
   useCurrentLocationBtn.addEventListener('click', () => {
     applyCurrentLocationToPlanner = true;
     if (!userLocation) {
-      detectUserLocation();
+      detectUserLocation({ precise: true });
       return;
     }
     const nearestStop = findNearestStopForCurrentLocation();

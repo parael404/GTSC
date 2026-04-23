@@ -79,7 +79,6 @@
             <strong>Password reset</strong>
           </button>
           {% endif %}
-          <a href="{{ url_for('admin_report') }}" class="ghost-button">{{ admin_icon('download') }}Export Report</a>
         </div>
       </header>
 
@@ -114,6 +113,7 @@
           </button>
           {% endif %}
           <button type="button" class="tab-link {% if active_tab == 'commuter' %}active{% endif %}" data-target="commuter">{{ admin_icon('route') }}Commuter Info</button>
+          <button type="button" class="tab-link {% if active_tab == 'archives' %}active{% endif %}" data-target="archives">{{ admin_icon('alert') }}Alert and Notifications Archives</button>
           {% if false %}
           <button type="button" class="tab-link {% if active_tab == 'profiles' %}active{% endif %}" data-target="profiles">{{ admin_icon('user') }}Profiles</button>
           {% endif %}
@@ -141,7 +141,6 @@
         </div>
 
         <div class="sidebar-actions">
-          <a href="{{ url_for('admin_report') }}" class="ghost-button">{{ admin_icon('download') }}Export Report</a>
           <a href="{{ url_for('logout') }}" class="solid-button" data-confirm="Are you sure you want to log out?">{{ admin_icon('logout') }}Logout</a>
         </div>
       </aside>
@@ -181,12 +180,12 @@
           </div>
         </div>
 
-        <article class="panel">
-          <div class="panel-head">
-            <h3>{{ admin_icon('alert') }}Operations Notifications</h3>
-            <span id="operationNotificationSummary">{{ overview.operation_notifications|length }} unread event{% if overview.operation_notifications|length != 1 %}s{% endif %}</span>
-          </div>
-          <div class="alert-admin-list" id="operationNotificationList">
+        <details class="panel filter-dropdown" open>
+          <summary class="filter-summary">
+            <span>{{ admin_icon('alert') }}Operations Notifications</span>
+            <strong id="operationNotificationSummary">{{ overview.operation_notifications|length }} latest unread event{% if overview.operation_notifications|length != 1 %}s{% endif %}</strong>
+          </summary>
+          <div class="alert-admin-list operation-notification-body" id="operationNotificationList">
             {% for notification in overview.operation_notifications %}
             <article class="alert-admin-item severity-{{ 'critical' if notification.notification_type == 'bus_full' else 'warning' if notification.notification_type == 'high_crowd' else 'info' }}">
               <div>
@@ -206,7 +205,7 @@
             <p class="section-copy">No operations notifications right now.</p>
             {% endfor %}
           </div>
-        </article>
+        </details>
 
         <div class="operations-grid">
           <article class="panel panel-large">
@@ -887,7 +886,7 @@
                   <input type="text" name="stop_name" placeholder="Optional specific stop">
                 </label>
                 <label>
-                  <span>Visible For</span>
+                  <span>Visibility Duration</span>
                   <select name="duration">
                     <option value="end_of_day" selected>Until end of day</option>
                     <option value="1h">1 hour</option>
@@ -930,17 +929,30 @@
             </div>
           </article>
 
-          <details class="panel filter-dropdown">
-            <summary class="filter-summary">
-              <span>{{ admin_icon('audit') }}Alert Archive</span>
-              <strong>Expired and completed service alerts</strong>
-            </summary>
+        </div>
+      </section>
+
+      <section id="archives" class="content-section {% if active_tab == 'archives' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Archives</p>
+            <h2>{{ admin_icon('alert') }}Alert and Notifications Archives</h2>
+            <p class="section-copy">Review completed public alerts and operation notifications that were already marked read.</p>
+          </div>
+        </div>
+
+        <div class="report-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('audit') }}Alert Archive</h3>
+              <span>Expired and completed service alerts</span>
+            </div>
             <div class="alert-admin-list">
               {% for alert in overview.archived_service_alerts %}
               <article class="alert-admin-item severity-{{ alert.severity }}">
                 <div>
                   <strong>{{ alert.title }}</strong>
-                  <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} Â· {{ alert.stop_name }}{% endif %}</span>
+                  <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} / {{ alert.stop_name }}{% endif %}</span>
                   <span>Archived: {{ alert.archived_at }}</span>
                   <p>{{ alert.message }}</p>
                 </div>
@@ -949,7 +961,27 @@
               <p class="section-copy">No archived alerts yet.</p>
               {% endfor %}
             </div>
-          </details>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('log') }}Operations Notifications Archive</h3>
+              <span id="operationArchiveSummary">{{ overview.archived_operation_notifications|length }} archived event{% if overview.archived_operation_notifications|length != 1 %}s{% endif %}</span>
+            </div>
+            <div class="alert-admin-list" id="operationArchiveList">
+              {% for notification in overview.archived_operation_notifications %}
+              <article class="alert-admin-item severity-{{ 'critical' if notification.notification_type == 'bus_full' else 'warning' if notification.notification_type == 'high_crowd' else 'info' }}">
+                <div>
+                  <strong>{{ notification.title }}</strong>
+                  <span>{{ notification.created_at }} / {{ notification.notification_type|replace('_', ' ')|title }}</span>
+                  <p>{{ notification.description }}</p>
+                </div>
+              </article>
+              {% else %}
+              <p class="section-copy">No archived operations notifications yet.</p>
+              {% endfor %}
+            </div>
+          </article>
         </div>
       </section>
 
@@ -979,16 +1011,22 @@
               {% endif %}
             </strong>
           </summary>
+          {% if overview.report_filters.error %}
+          <div class="profile-notice error" role="alert">
+            <strong>Invalid report date</strong>
+            <span>{{ overview.report_filters.error }}</span>
+          </div>
+          {% endif %}
           <form method="GET" class="stack-form filter-dropdown-body">
             <input type="hidden" name="tab" value="reports">
             <div class="form-grid">
               <label>
                 <span>From</span>
-                <input type="date" name="report_start" id="reportStartDate" value="{{ overview.report_filters.start }}">
+                <input type="date" name="report_start" id="reportStartDate" value="{{ overview.report_filters.start }}" max="{{ overview.report_filters.today }}" data-max-date="{{ overview.report_filters.today }}">
               </label>
               <label>
                 <span>To</span>
-                <input type="date" name="report_end" id="reportEndDate" value="{{ overview.report_filters.end }}" {% if overview.report_filters.start %}min="{{ overview.report_filters.start }}"{% endif %}>
+                <input type="date" name="report_end" id="reportEndDate" value="{{ overview.report_filters.end }}" max="{{ overview.report_filters.today }}" data-max-date="{{ overview.report_filters.today }}" {% if overview.report_filters.start %}min="{{ overview.report_filters.start }}"{% endif %}>
               </label>
               <label>
                 <span>Export</span>

@@ -27,8 +27,9 @@
       if (!value) {
         return null;
       }
+
       const normalized = String(value).trim().replace(' ', 'T');
-      const date = new Date(`${normalized}Z`);
+      const date = new Date(normalized);
       return Number.isNaN(date.getTime()) ? null : date;
     }
 

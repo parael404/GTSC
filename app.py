@@ -351,15 +351,37 @@ def parse_iso_date(value):
 
 def resolve_report_date_range(start_value=None, end_value=None):
     """Normalize optional report date filters into ordered ISO date strings."""
+    filters, _ = validate_report_date_range(start_value, end_value)
+    return filters
+
+
+def validate_report_date_range(start_value=None, end_value=None):
+    """Return normalized report date filters plus a validation error if present."""
+    start_raw = str(start_value or "").strip()
+    end_raw = str(end_value or "").strip()
     start_date = parse_iso_date(start_value)
     end_date = parse_iso_date(end_value)
-    if start_date and end_date and start_date > end_date:
-        start_date, end_date = end_date, start_date
+    today = now().date()
+    error = ""
+
+    if start_raw and not start_date:
+        error = "Enter a valid From date."
+    elif end_raw and not end_date:
+        error = "Enter a valid To date."
+    elif start_date and start_date > today:
+        error = "The From date cannot be in the future."
+    elif end_date and end_date > today:
+        error = "The To date cannot be in the future."
+    elif start_date and end_date and start_date > end_date:
+        error = "The From date must be earlier than or equal to the To date."
+
     return {
         "start": start_date.isoformat() if start_date else "",
         "end": end_date.isoformat() if end_date else "",
         "is_filtered": bool(start_date or end_date),
-    }
+        "today": today.isoformat(),
+        "error": error,
+    }, error
 
 
 # Classify bus occupancy as Low, Medium, or High based on capacity ratio.
@@ -798,6 +820,31 @@ def calculate_trip_fare_total(conn, trip, passenger_type, quantity, origin_stop_
     return float(round_peso(unit_fare * max(int(quantity or 0), 0)))
 
 
+def build_route_segment_fares(conn, route, stops):
+    """Build planner fare tables with the same rules used by conductor ticketing."""
+    segment_fares = {}
+    if not stops:
+        return segment_fares
+
+    route_context = {
+        "route_id": route["id"],
+        "route_name": route["route_name"],
+        "distance_km": route["distance_km"],
+        "expected_duration_minutes": route["expected_duration_minutes"],
+        "minimum_fare": route["minimum_fare"],
+        "discounted_fare": route["discounted_fare"],
+    }
+    for origin_index, origin_stop in enumerate(stops):
+        for destination_stop in stops[origin_index + 1:]:
+            segment_fares[f"{stop_name_key(origin_stop['name'])}|{stop_name_key(destination_stop['name'])}"] = build_segment_fare_table(
+                conn,
+                route_context,
+                origin_stop["name"],
+                destination_stop["name"],
+            )
+    return segment_fares
+
+
 # Group currently onboard passengers by destination for conductor monitoring.
 def build_trip_destination_manifest(conn, trip, current_stop_name=None):
     """Group currently onboard passengers by destination for conductor monitoring."""
@@ -1178,6 +1225,7 @@ def build_public_commuter_data(conn, live_data=None):
     for route in route_rows:
         stops = get_route_stop_details(route["route_name"])
         fare_guide = estimate_fare_table(route["distance_km"], route["minimum_fare"], route["discounted_fare"])
+        segment_fares = build_route_segment_fares(conn, route, stops)
         route_live_buses = [bus for bus in live_buses if bus["direction"] == route["route_name"]]
 
         next_bus = None
@@ -1203,6 +1251,7 @@ def build_public_commuter_data(conn, live_data=None):
                 "coords": parse_route_coords(route["coords_json"]),
                 "stops": stops,
                 "fareGuide": fare_guide,
+                "segmentFares": segment_fares,
                 "minimumFare": to_float(route["minimum_fare"], 15.0),
                 "discountedFare": to_float(route["discounted_fare"], 12.0),
                 "availableBusCount": len(route_live_buses),
@@ -3104,7 +3153,7 @@ def build_admin_password_reset_alerts(conn, limit=5):
     return [dict(row) for row in rows]
 
 
-def build_admin_operation_notifications(conn, limit=8):
+def build_admin_operation_notifications(conn, limit=5):
     """Return unread internal operations notifications for admin monitoring."""
     placeholders = ", ".join(["?"] * len(ADMIN_OPERATION_NOTIFICATION_TYPES))
     try:
@@ -3114,6 +3163,28 @@ def build_admin_operation_notifications(conn, limit=8):
             FROM admin_notifications
             WHERE notification_type IN ({placeholders}) AND status = 'unread'
             ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (*sorted(ADMIN_OPERATION_NOTIFICATION_TYPES), limit),
+        ).fetchall()
+    except Exception as exc:
+        if "admin_notifications" not in str(exc):
+            raise
+        conn.rollback()
+        return []
+    return [dict(row) for row in rows]
+
+
+def build_admin_operation_notification_archive(conn, limit=20):
+    """Return read internal operations notifications for the admin archive."""
+    placeholders = ", ".join(["?"] * len(ADMIN_OPERATION_NOTIFICATION_TYPES))
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT id, notification_type, title, message AS description, status, created_at, read_at
+            FROM admin_notifications
+            WHERE notification_type IN ({placeholders}) AND status = 'read'
+            ORDER BY COALESCE(read_at, created_at) DESC, id DESC
             LIMIT ?
             """,
             (*sorted(ADMIN_OPERATION_NOTIFICATION_TYPES), limit),
@@ -3516,6 +3587,7 @@ def build_admin_overview(conn, report_start_date=None, report_end_date=None):
     archived_service_alerts = get_archived_service_alerts(conn)
     password_reset_alerts = build_admin_password_reset_alerts(conn)
     operation_notifications = build_admin_operation_notifications(conn)
+    archived_operation_notifications = build_admin_operation_notification_archive(conn)
     user_rows = build_user_directory(conn)
 
     peak_hour_label = hourly_labels[0]
@@ -3545,6 +3617,7 @@ def build_admin_overview(conn, report_start_date=None, report_end_date=None):
         "archived_service_alerts": archived_service_alerts,
         "password_reset_alerts": password_reset_alerts,
         "operation_notifications": operation_notifications,
+        "archived_operation_notifications": archived_operation_notifications,
         "fare_matrix_rows": [],
         "fare_route_options": [],
         "fare_stop_options": [],
@@ -3593,6 +3666,7 @@ def build_admin_live_payload(conn):
         "high_crowd_count": overview["high_crowd_count"],
         "password_reset_alerts": overview["password_reset_alerts"],
         "operation_notifications": overview["operation_notifications"],
+        "archived_operation_notifications": overview["archived_operation_notifications"],
     }
 
 
@@ -3687,6 +3761,10 @@ def build_driver_overview(conn, driver_id):
 # Build conductor terminal data for active trip monitoring and ticketing.
 def build_conductor_overview(conn, conductor_id):
     """Build conductor terminal data for active trip monitoring and ticketing."""
+    conductor = conn.execute(
+        "SELECT id, full_name FROM users WHERE id = ?",
+        (conductor_id,),
+    ).fetchone()
     active_trip = get_active_trip_for_conductor(conn, conductor_id)
     available_trips = [
         dict(row)
@@ -3775,6 +3853,7 @@ def build_conductor_overview(conn, conductor_id):
         )
 
     return {
+        "conductor": dict(conductor) if conductor else {"id": conductor_id, "full_name": "Conductor"},
         "active_trip": active_trip,
         "available_trips": available_trips,
         "buses": buses,
@@ -4005,10 +4084,18 @@ def seed_demo_data():
         ]
         for username, email, password, role, full_name in users:
             existing_user = conn.execute(
-                "SELECT id, password FROM users WHERE username = ?",
-                (username,),
+                "SELECT id, username, email, password FROM users WHERE username = ? OR email = ? LIMIT 1",
+                (username, email),
             ).fetchone()
             if existing_user:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET username = ?, email = ?, role = ?, full_name = ?
+                    WHERE id = ?
+                    """,
+                    (username, email, role, full_name, existing_user["id"]),
+                )
                 ensure_password_hashed(conn, existing_user["id"], existing_user["password"])
             else:
                 conn.execute(
@@ -4352,6 +4439,11 @@ def super_admin_dashboard():
     active_tab = request.args.get("tab", "profiles")
     if active_tab == "password-resets":
         active_tab = "profiles"
+    profile_notice = None
+    profile_status = request.args.get("profile_status")
+    profile_message = request.args.get("profile_message", "").strip()
+    if profile_status in {"success", "error"} and profile_message:
+        profile_notice = {"status": profile_status, "message": profile_message}
 
     if request.method == "POST":
         action = request.form.get("action")
@@ -4364,13 +4456,30 @@ def super_admin_dashboard():
             password = request.form.get("password", "")
             role = request.form.get("role", "").strip().lower()
             full_name = request.form.get("full_name", "").strip()
+            active_tab = redirect_tab
 
-            if username and email and password and full_name and role in {"super_admin", "admin", "driver", "conductor"}:
+            if not username or not email or not password or not full_name:
+                profile_notice = {"status": "error", "message": "Complete all profile fields before creating an account."}
+            elif role not in {"super_admin", "admin", "driver", "conductor"}:
+                profile_notice = {"status": "error", "message": "Choose a valid role before creating an account."}
+            else:
                 existing_user = conn.execute(
-                    "SELECT id FROM users WHERE username = ? OR email = ?",
+                    "SELECT id, username, email FROM users WHERE username = ? OR email = ? LIMIT 1",
                     (username, email),
                 ).fetchone()
-                if not existing_user:
+                if existing_user:
+                    duplicate_fields = []
+                    if str(existing_user["username"]).lower() == username.lower():
+                        duplicate_fields.append("username")
+                    if str(existing_user["email"]).lower() == email:
+                        duplicate_fields.append("email")
+                    if not duplicate_fields:
+                        duplicate_fields.append("username or email")
+                    profile_notice = {
+                        "status": "error",
+                        "message": f"Cannot create profile. The {' and '.join(duplicate_fields)} already exists.",
+                    }
+                else:
                     conn.execute(
                         """
                         INSERT INTO users (username, email, password, role, full_name, created_at)
@@ -4387,7 +4496,14 @@ def super_admin_dashboard():
                     )
                     conn.commit()
                     conn.close()
-                    return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+                    return redirect(
+                        url_for(
+                            "super_admin_dashboard",
+                            tab=redirect_tab,
+                            profile_status="success",
+                            profile_message=f"Created {role.replace('_', ' ')} profile for {full_name}.",
+                        )
+                    )
         elif action == "update_profile":
             redirect_tab = request.form.get("redirect_tab", "profiles").strip() or "profiles"
             user_id_raw = request.form.get("user_id", "").strip()
@@ -4395,19 +4511,44 @@ def super_admin_dashboard():
             email = request.form.get("email", "").strip().lower()
             role = request.form.get("role", "").strip().lower()
             full_name = request.form.get("full_name", "").strip()
+            active_tab = redirect_tab
 
-            if user_id_raw.isdigit() and username and email and full_name and role in {"super_admin", "admin", "driver", "conductor"}:
+            if not user_id_raw.isdigit():
+                profile_notice = {"status": "error", "message": "Cannot update profile. The selected account is invalid."}
+            elif not username or not email or not full_name:
+                profile_notice = {"status": "error", "message": "Complete all profile fields before saving edits."}
+            elif role not in {"super_admin", "admin", "driver", "conductor"}:
+                profile_notice = {"status": "error", "message": "Choose a valid role before saving edits."}
+            else:
                 user_id = int(user_id_raw)
                 user_row = conn.execute("SELECT id, full_name, role FROM users WHERE id = ?", (user_id,)).fetchone()
                 duplicate_user = conn.execute(
-                    "SELECT id FROM users WHERE (username = ? OR email = ?) AND id <> ?",
+                    "SELECT id, username, email FROM users WHERE (username = ? OR email = ?) AND id <> ? LIMIT 1",
                     (username, email, user_id),
                 ).fetchone()
                 super_admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'super_admin'").fetchone()["total"]
                 admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").fetchone()["total"]
                 demotes_last_super_admin = user_row and user_row["role"] == "super_admin" and role != "super_admin" and super_admin_count <= 1
                 demotes_last_admin = user_row and user_row["role"] == "admin" and role != "admin" and admin_count <= 1
-                if user_row and not duplicate_user and not demotes_last_super_admin and not demotes_last_admin:
+                if not user_row:
+                    profile_notice = {"status": "error", "message": "Cannot update profile. The selected account no longer exists."}
+                elif duplicate_user:
+                    duplicate_fields = []
+                    if str(duplicate_user["username"]).lower() == username.lower():
+                        duplicate_fields.append("username")
+                    if str(duplicate_user["email"]).lower() == email:
+                        duplicate_fields.append("email")
+                    if not duplicate_fields:
+                        duplicate_fields.append("username or email")
+                    profile_notice = {
+                        "status": "error",
+                        "message": f"Cannot update profile. The {' and '.join(duplicate_fields)} already belongs to another account.",
+                    }
+                elif demotes_last_super_admin:
+                    profile_notice = {"status": "error", "message": "Cannot update profile. At least one super admin account must remain."}
+                elif demotes_last_admin:
+                    profile_notice = {"status": "error", "message": "Cannot update profile. At least one admin account must remain."}
+                else:
                     conn.execute(
                         """
                         UPDATE users
@@ -4419,7 +4560,14 @@ def super_admin_dashboard():
                     log_event(conn, session["user_id"], "super_admin", "Profile Updated", f"Updated profile for {full_name} ({username}).")
                     conn.commit()
                     conn.close()
-                    return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+                    return redirect(
+                        url_for(
+                            "super_admin_dashboard",
+                            tab=redirect_tab,
+                            profile_status="success",
+                            profile_message=f"Updated profile for {full_name}.",
+                        )
+                    )
         elif action == "delete_profile":
             redirect_tab = request.form.get("redirect_tab", "profiles").strip() or "profiles"
             user_id_raw = request.form.get("user_id", "").strip()
@@ -4445,7 +4593,12 @@ def super_admin_dashboard():
 
     overview = build_super_admin_overview(conn)
     conn.close()
-    return render_template("admin/super_admin_dashboard.html", overview=overview, active_tab=active_tab)
+    return render_template(
+        "admin/super_admin_dashboard.html",
+        overview=overview,
+        active_tab=active_tab,
+        profile_notice=profile_notice,
+    )
 
 
 @app.route("/admin", methods=["GET", "POST"])
@@ -5052,11 +5205,18 @@ def api_admin_bus_cameras(bus_id):
 # Download the current admin analytics report as a PDF file.
 def admin_report():
     """Download the current admin analytics report as a PDF file."""
+    report_filters, report_error = validate_report_date_range(
+        request.args.get("report_start"),
+        request.args.get("report_end"),
+    )
+    if report_error:
+        abort(400, description=report_error)
+
     conn = get_db()
     overview = build_admin_overview(
         conn,
-        request.args.get("report_start"),
-        request.args.get("report_end"),
+        report_filters["start"],
+        report_filters["end"],
     )
     conn.close()
 

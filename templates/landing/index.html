@@ -130,11 +130,12 @@
             </div>
             <img src="{{ url_for('static', filename='img/gajoda-office.jpg') }}" alt="Gajoda office interior">
           </article>
-          <article class="story-card text-only">
+          <article class="story-card js-lightbox-trigger" tabindex="0" role="button" aria-label="Open route map image" data-image="{{ url_for('static', filename='img/map.jpg') }}" data-title="Route Map">
             <span class="icon-badge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a7.5 7.5 0 0 0-7.5 7.5c0 5.7 7.5 11.5 7.5 11.5s7.5-5.8 7.5-11.5A7.5 7.5 0 0 0 12 2.5m0 10.2A2.7 2.7 0 1 1 12 7.3a2.7 2.7 0 0 1 0 5.4"/></svg></span>
             <span>Service Focus</span>
             <strong>Clearer trip information for passengers</strong>
             <p>Commuters can check active buses and crowd level before deciding when and where to board.</p>
+            <img src="{{ url_for('static', filename='img/map.jpg') }}" alt="Illustrated route map">
           </article>
         </div>
       </section>

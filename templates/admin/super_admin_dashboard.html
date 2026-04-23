@@ -101,6 +101,13 @@
           </div>
         </div>
 
+        {% if profile_notice %}
+        <div class="profile-notice {{ profile_notice.status }}" role="alert">
+          <strong>{{ 'Profile saved' if profile_notice.status == 'success' else 'Profile alert' }}</strong>
+          <span>{{ profile_notice.message }}</span>
+        </div>
+        {% endif %}
+
         <div class="report-grid">
           <article class="panel">
             <div class="panel-head">
@@ -351,13 +358,6 @@
       }
       document.querySelectorAll('[data-target]').forEach((button) => {
         button.addEventListener('click', () => showSection(button.dataset.target));
-      });
-      document.querySelectorAll('[data-confirm]').forEach((element) => {
-        element.addEventListener('click', (event) => {
-          if (!window.confirm(element.dataset.confirm)) {
-            event.preventDefault();
-          }
-        });
       });
 
       showSection(initialTab);
