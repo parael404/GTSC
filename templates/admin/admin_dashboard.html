@@ -186,6 +186,16 @@
             <strong id="operationNotificationSummary">{{ overview.operation_notifications|length }} latest unread event{% if overview.operation_notifications|length != 1 %}s{% endif %}</strong>
           </summary>
           <div class="alert-admin-list operation-notification-body" id="operationNotificationList">
+            {% if overview.operation_notifications %}
+            <div class="notification-actions">
+              <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="dismiss_all_admin_notifications">
+                <input type="hidden" name="redirect_tab" value="operations">
+                <button type="submit" class="mini-button">Read All</button>
+              </form>
+            </div>
+            {% endif %}
             {% for notification in overview.operation_notifications %}
             <article class="alert-admin-item severity-{{ 'critical' if notification.notification_type == 'bus_full' else 'warning' if notification.notification_type == 'high_crowd' else 'info' }}">
               <div>
@@ -225,6 +235,7 @@
               <h3>{{ admin_icon('bus') }}Active Bus Coordinates</h3>
               <span>Live positions now in the system</span>
             </div>
+            <div class="table-scroll">
             <table>
               <thead>
                 <tr>
@@ -247,6 +258,7 @@
                 {% endfor %}
               </tbody>
             </table>
+            </div>
           </article>
 
           <article class="panel">
@@ -254,6 +266,7 @@
               <h3>{{ admin_icon('overview') }}Fleet Status</h3>
               <span>Bus health and live occupancy</span>
             </div>
+            <div class="table-scroll">
             <table>
               <thead>
                 <tr>
@@ -261,7 +274,6 @@
                   <th>Route</th>
                   <th>Status</th>
                   <th>Occupancy</th>
-                  <th>Peak</th>
                   <th>Update</th>
                 </tr>
               </thead>
@@ -272,7 +284,6 @@
                   <td>{{ bus.route_name or 'No assigned route' }}</td>
                   <td>{{ bus.status }} / {{ bus.trip_status }}</td>
                   <td>{{ bus.occupancy }}/{{ bus.capacity }}</td>
-                  <td>{{ bus.peak_occupancy }}</td>
                   <td>
                     <form method="POST" class="inline-status-form">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -291,6 +302,7 @@
                 {% endfor %}
               </tbody>
             </table>
+            </div>
           </article>
         </div>
       </section>

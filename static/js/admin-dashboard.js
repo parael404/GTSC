@@ -372,10 +372,10 @@
     const cameraStreamLabel = document.getElementById('cameraStreamLabel');
     const cameraSeenLabel = document.getElementById('cameraSeenLabel');
     const cameraConfigForms = document.querySelectorAll('.camera-config-form');
-    const adminMap = L.map('adminMap').setView([15.37, 120.94], 10);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(adminMap);
+    const adminMap = L.map('adminMap', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([15.37, 120.94], 10);
 
     let adminMapLayers = [];
     let hasSetAdminMapView = false;
@@ -840,7 +840,16 @@
       const rows = Array.isArray(notifications) ? notifications : [];
       operationNotificationSummary.textContent = `${rows.length} latest unread event${rows.length === 1 ? '' : 's'}`;
       operationNotificationList.innerHTML = rows.length
-        ? rows.map((notification) => `
+        ? `
+          <div class="notification-actions">
+            <form method="POST">
+              <input type="hidden" name="csrf_token" value="${escapeHtml(csrfToken)}">
+              <input type="hidden" name="action" value="dismiss_all_admin_notifications">
+              <input type="hidden" name="redirect_tab" value="operations">
+              <button type="submit" class="mini-button">Read All</button>
+            </form>
+          </div>
+          ${rows.map((notification) => `
           <article class="alert-admin-item severity-${operationSeverity(notification.notification_type)}">
             <div>
               <strong>${escapeHtml(notification.title || 'Operations notification')}</strong>
@@ -855,7 +864,8 @@
               <button type="submit" class="mini-button">Mark Read</button>
             </form>
           </article>
-        `).join('')
+        `).join('')}
+        `
         : '<p class="section-copy">No operations notifications right now.</p>';
     }
 

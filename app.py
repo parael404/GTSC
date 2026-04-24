@@ -4946,6 +4946,37 @@ def admin_dashboard():
                     conn.commit()
                     conn.close()
                     return redirect(url_for("admin_dashboard", tab=redirect_tab))
+        if action == "dismiss_all_admin_notifications":
+            redirect_tab = request.form.get("redirect_tab", "operations").strip() or "operations"
+            placeholders = ", ".join(["?"] * len(ADMIN_OPERATION_NOTIFICATION_TYPES))
+            unread_count = conn.execute(
+                f"""
+                SELECT COUNT(*) AS unread_count
+                FROM admin_notifications
+                WHERE notification_type IN ({placeholders}) AND status = 'unread'
+                """,
+                (*sorted(ADMIN_OPERATION_NOTIFICATION_TYPES),),
+            ).fetchone()
+            notifications_to_mark = int(unread_count["unread_count"] if unread_count else 0)
+            if notifications_to_mark:
+                conn.execute(
+                    f"""
+                    UPDATE admin_notifications
+                    SET status = 'read', read_at = ?
+                    WHERE notification_type IN ({placeholders}) AND status = 'unread'
+                    """,
+                    (to_db_time(now()), *sorted(ADMIN_OPERATION_NOTIFICATION_TYPES)),
+                )
+                log_event(
+                    conn,
+                    session["user_id"],
+                    "admin",
+                    "Admin Notifications Marked Read",
+                    f"Marked {notifications_to_mark} operations notifications as read.",
+                )
+                conn.commit()
+            conn.close()
+            return redirect(url_for("admin_dashboard", tab=redirect_tab))
         if action == "update_bus_status":
             bus_id_raw = request.form.get("bus_id", "").strip()
             next_status = request.form.get("status", "").strip().lower()
