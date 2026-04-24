@@ -17,6 +17,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from email.message import EmailMessage
 from functools import wraps
 from io import BytesIO
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from xml.sax.saxutils import escape
 
 import matplotlib
@@ -325,11 +326,18 @@ ROUTE_STOPS = {
     for route_name, stops in ROUTE_STOP_DETAILS.items()
 }
 
+APP_TIMEZONE_NAME = os.environ.get("APP_TIMEZONE", "Asia/Manila")
+try:
+    APP_TIMEZONE = ZoneInfo(APP_TIMEZONE_NAME)
+except ZoneInfoNotFoundError:
+    APP_TIMEZONE = ZoneInfo("UTC")
+    APP_TIMEZONE_NAME = "UTC"
+
 
 # Return the current local datetime used for trip, GPS, and log timestamps.
 def now():
-    """Return the current local datetime used for trip, GPS, and log timestamps."""
-    return datetime.now()
+    """Return the current app-local datetime used for trip, GPS, and log timestamps."""
+    return datetime.now(APP_TIMEZONE).replace(tzinfo=None)
 
 
 # Convert a datetime value into the database timestamp string format.
