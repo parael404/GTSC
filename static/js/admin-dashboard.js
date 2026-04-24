@@ -372,10 +372,45 @@
     const cameraStreamLabel = document.getElementById('cameraStreamLabel');
     const cameraSeenLabel = document.getElementById('cameraSeenLabel');
     const cameraConfigForms = document.querySelectorAll('.camera-config-form');
+    const adminMapEmpty = document.getElementById('adminMapEmpty');
+
+    const PlainAdminMapLayer = L.GridLayer.extend({
+      createTile(coords) {
+        const tile = document.createElement('canvas');
+        const size = this.getTileSize();
+        tile.width = size.x;
+        tile.height = size.y;
+
+        const context = tile.getContext('2d');
+        context.fillStyle = document.documentElement.dataset.theme === 'dark' ? '#17202c' : '#eef2f7';
+        context.fillRect(0, 0, size.x, size.y);
+
+        context.strokeStyle = document.documentElement.dataset.theme === 'dark'
+          ? 'rgba(255, 255, 255, 0.05)'
+          : 'rgba(15, 23, 42, 0.05)';
+        context.lineWidth = 1;
+
+        for (let offset = 0; offset <= size.x; offset += 64) {
+          context.beginPath();
+          context.moveTo(offset, 0);
+          context.lineTo(offset, size.y);
+          context.stroke();
+
+          context.beginPath();
+          context.moveTo(0, offset);
+          context.lineTo(size.x, offset);
+          context.stroke();
+        }
+
+        return tile;
+      }
+    });
+
     const adminMap = L.map('adminMap', {
       zoomControl: false,
       attributionControl: false
     }).setView([15.37, 120.94], 10);
+    new PlainAdminMapLayer().addTo(adminMap);
 
     let adminMapLayers = [];
     let hasSetAdminMapView = false;
@@ -404,43 +439,20 @@
       return layer;
     }
 
-    function validPoint(point) {
-      return Array.isArray(point) && hasValidCoordinates(point[0], point[1]);
-    }
-
-    function getStopPath(stops) {
-      return stops
-        .filter((stop) => hasValidCoordinates(stop.lat, stop.lng))
-        .map((stop) => [Number(stop.lat), Number(stop.lng)]);
-    }
-
-    function getRoutePath(bus) {
-      const stops = Array.isArray(bus.stops) ? bus.stops : [];
-      const stopPath = getStopPath(stops);
-      if (stopPath.length >= 2) {
-        return stopPath;
-      }
-      return (Array.isArray(bus.coords) ? bus.coords : [])
-        .filter(validPoint)
-        .map((point) => [Number(point[0]), Number(point[1])]);
-    }
-
     function renderAdminMap() {
       clearAdminMapLayers();
 
       if (!liveBuses.length) {
+        if (adminMapEmpty) {
+          adminMapEmpty.classList.remove('is-hidden');
+        }
+        adminMap.setView([15.37, 120.94], 10);
         return;
       }
 
       const bounds = [];
 
       liveBuses.forEach((bus) => {
-        const routePath = getRoutePath(bus);
-
-        if (routePath.length) {
-          bounds.push(...routePath);
-        }
-
         if (!bus.isLiveTracked || !hasValidCoordinates(bus.lat, bus.lng)) {
           return;
         }
@@ -464,7 +476,25 @@
         bounds.push([Number(bus.lat), Number(bus.lng)]);
       });
 
-      if (bounds.length && !hasSetAdminMapView) {
+      if (!bounds.length) {
+        if (adminMapEmpty) {
+          adminMapEmpty.classList.remove('is-hidden');
+        }
+        adminMap.setView([15.37, 120.94], 10);
+        return;
+      }
+
+      if (adminMapEmpty) {
+        adminMapEmpty.classList.add('is-hidden');
+      }
+
+      if (bounds.length === 1) {
+        adminMap.setView(bounds[0], 15);
+        hasSetAdminMapView = true;
+        return;
+      }
+
+      if (!hasSetAdminMapView) {
         adminMap.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });
         hasSetAdminMapView = true;
       }

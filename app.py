@@ -12,12 +12,11 @@ import socket
 import ssl
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from email.message import EmailMessage
 from functools import wraps
 from io import BytesIO
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from xml.sax.saxutils import escape
 
 import matplotlib
@@ -327,11 +326,8 @@ ROUTE_STOPS = {
 }
 
 APP_TIMEZONE_NAME = os.environ.get("APP_TIMEZONE", "Asia/Manila")
-try:
-    APP_TIMEZONE = ZoneInfo(APP_TIMEZONE_NAME)
-except ZoneInfoNotFoundError:
-    APP_TIMEZONE = ZoneInfo("UTC")
-    APP_TIMEZONE_NAME = "UTC"
+APP_TIMEZONE_OFFSET_HOURS = int(os.environ.get("APP_TIMEZONE_OFFSET_HOURS", "8"))
+APP_TIMEZONE = timezone(timedelta(hours=APP_TIMEZONE_OFFSET_HOURS))
 
 
 # Return the current local datetime used for trip, GPS, and log timestamps.

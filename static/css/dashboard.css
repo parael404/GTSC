@@ -216,6 +216,12 @@ a {
 
 .trip-status.live { border-left: 5px solid #0f766e; }
 .button-row { display: flex; gap: 12px; margin-bottom: 18px; }
+.notification-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
 .primary.tracking {
   background: #0f766e;
 }
