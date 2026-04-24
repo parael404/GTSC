@@ -4465,6 +4465,34 @@ def health_check():
     return jsonify({"status": "ok"}), 200
 
 
+def build_public_fallback_payload():
+    """Return safe public-facing defaults when live database data is unavailable."""
+    live_data = {
+        "buses": [],
+        "active_bus_count": 0,
+        "avg_crowd": 0,
+        "low_count": 0,
+        "medium_count": 0,
+        "high_count": 0,
+    }
+    commuter_payload = {
+        "routes": [],
+        "stopDirectory": [],
+        "stopNames": [],
+        "serviceAlerts": [
+            {
+                "title": "Live service data is temporarily unavailable",
+                "message": "Please try again in a few moments while the system reconnects.",
+                "severity": "warning",
+                "route_name": None,
+                "stop_name": None,
+                "expires_at": None,
+            }
+        ],
+    }
+    return live_data, commuter_payload
+
+
 @app.after_request
 def add_protected_cache_headers(response):
     """Prevent browsers from caching role-protected pages and API responses."""
@@ -4479,11 +4507,17 @@ def add_protected_cache_headers(response):
 # Render the public homepage with live service preview and commuter notices.
 def landing():
     """Render the public homepage with live service preview and commuter notices."""
-    conn = get_db()
-    live_data = build_live_bus_data(conn)
-    commuter_data = build_public_commuter_data(conn, live_data)
-    conn.close()
-    commuter_payload = normalize_json_value(commuter_data)
+    try:
+        conn = get_db()
+        try:
+            live_data = build_live_bus_data(conn)
+            commuter_data = build_public_commuter_data(conn, live_data)
+        finally:
+            conn.close()
+        commuter_payload = normalize_json_value(commuter_data)
+    except Exception as error:
+        app.logger.exception("Landing page live data unavailable: %s", error)
+        live_data, commuter_payload = build_public_fallback_payload()
     preview_buses = [bus for bus in live_data["buses"] if bus["status"] == "online"][:3]
     primary_route = commuter_payload["routes"][0] if commuter_payload["routes"] else None
     return render_template(
@@ -4507,11 +4541,17 @@ def landing():
 # Render the public commuter tracker with map, route planner, and bus list.
 def tracker():
     """Render the public commuter tracker with map, route planner, and bus list."""
-    conn = get_db()
-    live_data = build_live_bus_data(conn)
-    commuter_data = build_public_commuter_data(conn, live_data)
-    conn.close()
-    commuter_payload = normalize_json_value(commuter_data)
+    try:
+        conn = get_db()
+        try:
+            live_data = build_live_bus_data(conn)
+            commuter_data = build_public_commuter_data(conn, live_data)
+        finally:
+            conn.close()
+        commuter_payload = normalize_json_value(commuter_data)
+    except Exception as error:
+        app.logger.exception("Tracker page live data unavailable: %s", error)
+        live_data, commuter_payload = build_public_fallback_payload()
     return render_template(
         "landing/tracker.html",
         buses_json=json.dumps(live_data["buses"]),
@@ -4529,11 +4569,18 @@ def tracker():
 # Return public route, stop, fare, and alert data as JSON.
 def api_public_commuter():
     """Return public route, stop, fare, and alert data as JSON."""
-    conn = get_db()
-    live_data = build_live_bus_data(conn)
-    payload = build_public_commuter_data(conn, live_data)
-    conn.close()
-    return jsonify(normalize_json_value(payload))
+    try:
+        conn = get_db()
+        try:
+            live_data = build_live_bus_data(conn)
+            payload = build_public_commuter_data(conn, live_data)
+        finally:
+            conn.close()
+        return jsonify(normalize_json_value(payload))
+    except Exception as error:
+        app.logger.exception("Public commuter API unavailable: %s", error)
+        _, payload = build_public_fallback_payload()
+        return jsonify(payload), 503
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -5390,10 +5437,17 @@ def admin_dashboard():
 # Return live bus data for public and dashboard map refreshes.
 def api_live_buses():
     """Return live bus data for public and dashboard map refreshes."""
-    conn = get_db()
-    live_data = build_live_bus_data(conn)
-    conn.close()
-    return jsonify(normalize_json_value(live_data))
+    try:
+        conn = get_db()
+        try:
+            live_data = build_live_bus_data(conn)
+        finally:
+            conn.close()
+        return jsonify(normalize_json_value(live_data))
+    except Exception as error:
+        app.logger.exception("Live bus API unavailable: %s", error)
+        live_data, _ = build_public_fallback_payload()
+        return jsonify(live_data), 503
 
 
 @app.route("/api/admin/live")
