@@ -144,7 +144,12 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=IS_PRODUCTION,
 )
-socketio = SocketIO(app, async_mode="threading")
+socketio = SocketIO(
+    app,
+    async_mode="threading",
+    logger=not IS_PRODUCTION,
+    engineio_logger=not IS_PRODUCTION,
+)
 
 PROTECTED_PATH_PREFIXES = (
     "/admin",
