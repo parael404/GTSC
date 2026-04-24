@@ -1422,6 +1422,51 @@ def derive_trip_location_label(trip, latitude, longitude):
     return f"On route to {trip.get('end_point') or 'terminal'}"
 
 
+def get_last_scanned_trip_stop(trip, latest_gps=None, fallback_stop_name=None):
+    """Return the last confirmed route stop behind the current GPS position."""
+    route_stops = get_route_stop_details(trip.get("route_name"))
+    if not route_stops:
+        return fallback_stop_name or trip.get("start_point")
+
+    if latest_gps and latest_gps.get("latitude") is not None and latest_gps.get("longitude") is not None:
+        latitude = float(latest_gps["latitude"])
+        longitude = float(latest_gps["longitude"])
+        nearest_stop, nearest_distance = closest_route_stop(latitude, longitude, route_stops)
+        if nearest_distance <= STOP_PASS_RADIUS_KM:
+            return nearest_stop["name"]
+
+        nearest_index = min(
+            range(len(route_stops)),
+            key=lambda index: distance_between_points_km(
+                latitude,
+                longitude,
+                route_stops[index]["lat"],
+                route_stops[index]["lng"],
+            ),
+        )
+        if nearest_index <= 0:
+            return route_stops[0]["name"]
+        return route_stops[nearest_index - 1]["name"]
+
+    fallback_index = find_stop_index(route_stops, fallback_stop_name)
+    if fallback_index >= 0:
+        return route_stops[fallback_index]["name"]
+    return route_stops[0]["name"]
+
+
+def build_conductor_destination_options(conn, trip, origin_stop_name):
+    """Build conductor destination choices and fare guides from one origin stop."""
+    options = []
+    for option in get_trip_destination_options(trip, origin_stop_name):
+        options.append(
+            {
+                **option,
+                "fare_guide": build_segment_fare_table(conn, trip, origin_stop_name, option["name"]),
+            }
+        )
+    return options
+
+
 # Render a chart as an in-memory PNG image for PDF reports.
 def render_chart_image(title, labels, values, chart_type="bar", color="#D60000"):
     """Render a chart as an in-memory PNG image for PDF reports."""
@@ -4078,15 +4123,13 @@ def build_conductor_overview(conn, conductor_id):
         )
         if current_stop_details:
             current_stop = current_stop_details["name"]
-        destination_options = []
-        for option in get_trip_destination_options(active_trip, current_stop):
-            destination_options.append(
-                {
-                    **option,
-                    "fare_guide": build_segment_fare_table(conn, active_trip, current_stop, option["name"]),
-                }
-            )
-        destination_manifest = sync_trip_occupancy_from_destinations(conn, active_trip, current_stop)
+        fare_origin_stop = get_last_scanned_trip_stop(
+            active_trip,
+            latest_gps,
+            latest_record["stop_name"] if latest_record else None,
+        )
+        destination_options = build_conductor_destination_options(conn, active_trip, fare_origin_stop)
+        destination_manifest = sync_trip_occupancy_from_destinations(conn, active_trip, fare_origin_stop)
         if latest_record:
             trip_summary = dict(latest_record)
             trip_summary["stop_name"] = current_stop
@@ -5791,22 +5834,26 @@ def conductor():
             latitude = latest_gps["latitude"] if latest_gps and latest_gps["latitude"] is not None else None
             longitude = latest_gps["longitude"] if latest_gps and latest_gps["longitude"] is not None else None
             latest_record = get_latest_trip_record(conn, active_trip["id"])
-            current_stop_details = get_trip_current_stop_details(
+            live_stop_details = get_trip_current_stop_details(
                 active_trip,
                 latest_gps,
                 latest_record["stop_name"] if latest_record else None,
             )
-            live_origin_stop = current_stop_details["name"] if current_stop_details else (active_trip.get("start_point") or "Waiting for GPS location")
+            live_origin_stop = live_stop_details["name"] if live_stop_details else (active_trip.get("start_point") or "Waiting for GPS location")
             posted_origin_stop = request.form.get("origin_stop", "").strip()
             passenger_type = request.form.get("passenger_type", "").strip().lower()
             destination_stop = request.form.get("destination_stop", "").strip()
-            origin_stop = live_origin_stop
-            if not is_valid_trip_segment(active_trip, origin_stop, destination_stop) and is_valid_trip_segment(active_trip, posted_origin_stop, destination_stop):
-                origin_stop = posted_origin_stop
-            is_valid_destination = is_valid_trip_segment(active_trip, origin_stop, destination_stop)
+            ticket_origin_stop = get_last_scanned_trip_stop(
+                active_trip,
+                latest_gps,
+                latest_record["stop_name"] if latest_record else None,
+            )
+            if not is_valid_trip_segment(active_trip, ticket_origin_stop, destination_stop) and is_valid_trip_segment(active_trip, posted_origin_stop, destination_stop):
+                ticket_origin_stop = posted_origin_stop
+            is_valid_destination = is_valid_trip_segment(active_trip, ticket_origin_stop, destination_stop)
 
             if passenger_type in {"student", "pwd", "senior", "regular"} and is_valid_destination:
-                fare_amount = calculate_trip_fare_total(conn, active_trip, passenger_type, 1, origin_stop, destination_stop)
+                fare_amount = calculate_trip_fare_total(conn, active_trip, passenger_type, 1, ticket_origin_stop, destination_stop)
             else:
                 fare_amount = 0
             recorded_at = to_db_time(now())
@@ -5826,8 +5873,8 @@ def conductor():
                         passenger_type,
                         1,
                         fare_amount,
-                        origin_stop,
-                        origin_stop,
+                        ticket_origin_stop,
+                        ticket_origin_stop,
                         destination_stop,
                         float(latitude) if latitude is not None else None,
                         float(longitude) if longitude is not None else None,
@@ -5837,7 +5884,7 @@ def conductor():
                 )
                 ticket_id = ticket_cursor.lastrowid
 
-                manifest = sync_trip_occupancy_from_destinations(conn, active_trip, origin_stop)
+                manifest = sync_trip_occupancy_from_destinations(conn, active_trip, ticket_origin_stop)
                 total = sum(item["count"] for item in manifest)
                 crowd_level = classify_capacity(total, active_trip["capacity"])
                 passenger_counts = {"student": 0, "pwd": 0, "senior": 0, "regular": 0}
@@ -5861,7 +5908,7 @@ def conductor():
                         1,
                         total,
                         crowd_level,
-                        origin_stop,
+                        ticket_origin_stop,
                         float(latitude) if latitude is not None else None,
                         float(longitude) if longitude is not None else None,
                         recorded_at,
@@ -5880,14 +5927,14 @@ def conductor():
                     conductor_id,
                     "conductor",
                     "Ticket Printed",
-                    f"Trip #{active_trip['id']} boarded 1 {passenger_type} passenger from {origin_stop} to {destination_stop} for PHP {fare_amount:.0f}.",
+                    f"Trip #{active_trip['id']} boarded 1 {passenger_type} passenger from {ticket_origin_stop} to {destination_stop} for PHP {fare_amount:.0f}.",
                 )
                 create_trip_capacity_notification(conn, active_trip, total, conductor_id)
                 ticket_payload = {
                     "id": ticket_id,
                     "recordedAt": recorded_at,
                     "passengerType": passenger_type,
-                    "originStop": origin_stop,
+                    "originStop": ticket_origin_stop,
                     "destinationStop": destination_stop,
                     "fareAmount": float(fare_amount or 0),
                     "occupancyAfter": int(total or 0),
@@ -5897,7 +5944,7 @@ def conductor():
                     "routeName": active_trip["route_name"],
                     "routeStart": active_trip["start_point"],
                     "routeEnd": active_trip["end_point"],
-                    "sidebar": build_conductor_sidebar_payload(conn, conductor_id, active_trip, origin_stop),
+                    "sidebar": build_conductor_sidebar_payload(conn, conductor_id, active_trip, ticket_origin_stop),
                 }
             else:
                 ticket_error = "Select a valid downstream destination and passenger type before printing."
@@ -6038,6 +6085,12 @@ def conductor_panels():
     current_stop = current_stop_details["name"] if current_stop_details else (
         latest_record["stop_name"] if latest_record else None
     )
+    fare_origin_stop = get_last_scanned_trip_stop(
+        trip,
+        latest_gps,
+        latest_record["stop_name"] if latest_record else None,
+    )
+    destination_options = build_conductor_destination_options(conn, trip, fare_origin_stop)
     sidebar_payload = build_conductor_sidebar_payload(conn, conductor_id, trip, current_stop)
     conn.commit()
     conn.close()
@@ -6048,6 +6101,7 @@ def conductor_panels():
                 "occupancy": int(trip.get("occupancy") or 0),
                 "capacity": int(trip.get("capacity") or DEFAULT_BUS_CAPACITY),
                 "stop_name": current_stop or "Waiting for GPS location",
+                "destination_options": destination_options,
                 "sidebar": sidebar_payload,
             }
         )

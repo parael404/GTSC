@@ -24,7 +24,9 @@
     const todayTransactions = document.getElementById('todayTransactions');
     const destinationManifestList = document.getElementById('destinationManifestList');
     const recentTicketList = document.getElementById('recentTicketList');
-    const destinationButtons = Array.from(document.querySelectorAll('.destination-chip'));
+    const destinationGrid = document.getElementById('destinationGrid');
+    const destinationCount = document.getElementById('destinationCount');
+    let destinationButtons = Array.from(document.querySelectorAll('.destination-chip'));
     const passengerButtons = Array.from(document.querySelectorAll('.passenger-chip'));
     const LIVE_STATUS_REFRESH_MS = 3000;
     const PANEL_REFRESH_MS = 1000;
@@ -88,6 +90,63 @@
         || normalized.includes('route start')
         || normalized.includes('on route to')
         || (routeStart && normalized === routeStart);
+    }
+
+    function bindDestinationButtons() {
+      destinationButtons = Array.from(document.querySelectorAll('.destination-chip'));
+      destinationButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          destinationButtons.forEach((item) => item.classList.remove('is-active'));
+          button.classList.add('is-active');
+          selectedDestinationButton = button;
+          if (destinationStopInput) destinationStopInput.value = button.dataset.destination || '';
+          updateTicketSummary();
+        });
+      });
+    }
+
+    function renderDestinationOptions(options) {
+      if (!destinationGrid) {
+        return;
+      }
+
+      const safeOptions = Array.isArray(options) ? options : [];
+      const previouslySelectedDestination = destinationStopInput ? destinationStopInput.value : '';
+
+      if (destinationCount) {
+        destinationCount.textContent = `${safeOptions.length} upcoming stop(s)`;
+      }
+
+      if (!safeOptions.length) {
+        destinationGrid.innerHTML = '<p class="muted">No more downstream destinations available from the current GPS stop.</p>';
+        selectedDestinationButton = null;
+        if (destinationStopInput) destinationStopInput.value = '';
+        bindDestinationButtons();
+        updateTicketSummary();
+        return;
+      }
+
+      destinationGrid.innerHTML = safeOptions.map((stop) => `
+        <button
+          type="button"
+          class="destination-chip${stop.name === previouslySelectedDestination ? ' is-active' : ''}"
+          data-destination="${escapeHtml(stop.name)}"
+          data-fare-student="${escapeHtml(stop.fare_guide.student)}"
+          data-fare-pwd="${escapeHtml(stop.fare_guide.pwd)}"
+          data-fare-senior="${escapeHtml(stop.fare_guide.senior)}"
+          data-fare-regular="${escapeHtml(stop.fare_guide.regular)}"
+        >
+          <span class="destination-index">${escapeHtml(stop.sequence)}</span>
+          <strong>${escapeHtml(stop.name)}</strong>
+        </button>
+      `).join('');
+
+      bindDestinationButtons();
+      selectedDestinationButton = destinationButtons.find((button) => button.dataset.destination === previouslySelectedDestination) || null;
+      if (!selectedDestinationButton && destinationStopInput) {
+        destinationStopInput.value = '';
+      }
+      updateTicketSummary();
     }
 
     function renderSidebar(payload) {
@@ -448,15 +507,7 @@
       ticketWindow.document.close();
     }
 
-    destinationButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        destinationButtons.forEach((item) => item.classList.remove('is-active'));
-        button.classList.add('is-active');
-        selectedDestinationButton = button;
-        if (destinationStopInput) destinationStopInput.value = button.dataset.destination || '';
-        updateTicketSummary();
-      });
-    });
+    bindDestinationButtons();
 
     passengerButtons.forEach((button) => {
       button.addEventListener('click', () => {
@@ -612,6 +663,7 @@
         throw new Error('Failed to load conductor panels');
       }
       const payload = await response.json();
+      renderDestinationOptions(payload.destination_options);
       applyLivePayload(payload, { updateTrackingStatus: false, updateGpsFields: false });
     }
 

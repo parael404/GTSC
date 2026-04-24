@@ -96,9 +96,9 @@
             <section class="destination-section">
               <div class="section-title-row">
                 <h3>Destinations</h3>
-                <span>{{ overview.destination_options|length }} upcoming stop(s)</span>
+                <span id="destinationCount">{{ overview.destination_options|length }} upcoming stop(s)</span>
               </div>
-              <div class="destination-grid">
+              <div class="destination-grid" id="destinationGrid">
                 {% for stop in overview.destination_options %}
                 <button
                   type="button"
