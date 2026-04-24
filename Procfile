@@ -1,1 +1,1 @@
-web: python -c "from connection import bootstrap_db; bootstrap_db()" && gunicorn app:app --worker-class gthread --threads 100 --bind 0.0.0.0:$PORT
+web: gunicorn app:app --worker-class gthread --threads 100 --bind 0.0.0.0:$PORT

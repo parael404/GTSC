@@ -46,7 +46,14 @@ credentials.
 
 ## Database Setup
 
-The included `Procfile` runs schema setup automatically before Gunicorn starts:
+Run schema setup as a one-off task before first production use or when you need
+to apply bootstrap changes manually:
+
+```sh
+python -c "from connection import bootstrap_db; bootstrap_db()"
+```
+
+If you also need demo or initial seeded data in a controlled environment, run:
 
 ```sh
 python -c "from app import initialize_database; initialize_database()"
