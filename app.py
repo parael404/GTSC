@@ -4507,17 +4507,7 @@ def add_protected_cache_headers(response):
 # Render the public homepage with live service preview and commuter notices.
 def landing():
     """Render the public homepage with live service preview and commuter notices."""
-    try:
-        conn = get_db()
-        try:
-            live_data = build_live_bus_data(conn)
-            commuter_data = build_public_commuter_data(conn, live_data)
-        finally:
-            conn.close()
-        commuter_payload = normalize_json_value(commuter_data)
-    except Exception as error:
-        app.logger.exception("Landing page live data unavailable: %s", error)
-        live_data, commuter_payload = build_public_fallback_payload()
+    live_data, commuter_payload = build_public_fallback_payload()
     preview_buses = [bus for bus in live_data["buses"] if bus["status"] == "online"][:3]
     primary_route = commuter_payload["routes"][0] if commuter_payload["routes"] else None
     return render_template(
@@ -4541,17 +4531,7 @@ def landing():
 # Render the public commuter tracker with map, route planner, and bus list.
 def tracker():
     """Render the public commuter tracker with map, route planner, and bus list."""
-    try:
-        conn = get_db()
-        try:
-            live_data = build_live_bus_data(conn)
-            commuter_data = build_public_commuter_data(conn, live_data)
-        finally:
-            conn.close()
-        commuter_payload = normalize_json_value(commuter_data)
-    except Exception as error:
-        app.logger.exception("Tracker page live data unavailable: %s", error)
-        live_data, commuter_payload = build_public_fallback_payload()
+    live_data, commuter_payload = build_public_fallback_payload()
     return render_template(
         "landing/tracker.html",
         buses_json=json.dumps(live_data["buses"]),

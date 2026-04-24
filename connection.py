@@ -23,6 +23,7 @@ DB_CONFIG = {
     "password": _env_first("MYSQLPASSWORD", "DB_PASSWORD", default=""),
     "port": int(_env_first("MYSQLPORT", "DB_PORT", default="3306")),
     "database": _env_first("MYSQLDATABASE", "MYSQL_DATABASE", "DB_NAME", default="codexmbs_db"),
+    "connection_timeout": int(_env_first("MYSQL_CONNECT_TIMEOUT", "DB_CONNECT_TIMEOUT", default="5")),
 }
 
 
